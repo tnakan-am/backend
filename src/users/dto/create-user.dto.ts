@@ -1,4 +1,4 @@
-import { IsString, IsEmail, IsNotEmpty, MinLength, IsIn, IsInt } from 'class-validator';
+import { IsString, IsEmail, IsNotEmpty, MinLength, IsIn, Matches } from 'class-validator';
 
 export class CreateUserDto {
   @IsString()
@@ -18,8 +18,8 @@ export class CreateUserDto {
   @IsIn(['buyer', 'seller', 'admin'])
   type: string;
 
-
+  @IsString()
   @IsNotEmpty()
-  @IsInt()
+  @Matches(/^\+374\d{8}$/)
   phone: string;
 }

@@ -13,6 +13,7 @@ import { AuthService } from './auth.service';
 import { AuthGuard } from './auth.guard';
 import { UserService } from '../users/users.service';
 import { CreateUserDto } from '../users/dto/create-user.dto';
+import { SignInDto } from './sign-in.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -23,7 +24,7 @@ export class AuthController {
 
   @HttpCode(HttpStatus.OK)
   @Post('login')
-  async signIn(@Body() signInDto: Record<string, any>) {
+  async signIn(@Body() signInDto: SignInDto) {
     try {
       return await this.authService.signIn(signInDto.email, signInDto.password);
     } catch (error) {
