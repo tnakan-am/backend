@@ -1,4 +1,3 @@
-
 import {
   Body,
   Controller,
@@ -7,21 +6,35 @@ import {
   HttpStatus,
   Post,
   Request,
-  UseGuards
+  UseGuards,
+  HttpException,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthGuard } from './auth.guard';
-import {UserService} from '../users/users.service';
+import { UserService } from '../users/users.service';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService, private readonly usersService: UserService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly usersService: UserService,
+  ) {}
 
   @HttpCode(HttpStatus.OK)
   @Post('login')
-  signIn(@Body() signInDto: Record<string, any>) {
-    return this.authService.signIn(signInDto.email, signInDto.password);
+  async signIn(@Body() signInDto: Record<string, any>) {
+    try {
+      return await this.authService.signIn(signInDto.email, signInDto.password);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Internal server error during authentication',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   @UseGuards(AuthGuard)
@@ -32,7 +45,19 @@ export class AuthController {
 
   @Post('register')
   async register(@Body() createUserDto: CreateUserDto) {
-    const user = await this.usersService.create(createUserDto);
-    return { message: 'Registration successful! Please check your email to verify your account.' };
+    try {
+      const user = await this.usersService.create(createUserDto);
+      return {
+        message: 'Registration successful! Please check your email to verify your account.',
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Internal server error during registration',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 }
