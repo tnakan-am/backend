@@ -18,7 +18,7 @@ export class UsersMigration1736076526356 implements MigrationInterface {
                         isPrimary: true,
                     },
                     {
-                        name: "name",
+                        name: "fullName",
                         type: "varchar",
                     },
                     {
@@ -29,6 +29,7 @@ export class UsersMigration1736076526356 implements MigrationInterface {
                     {
                         name: "phone",
                         type: "varchar",
+                        isNullable: true,
                     },
                     {
                         name: "type",
@@ -58,8 +59,8 @@ export class UsersMigration1736076526356 implements MigrationInterface {
         await queryRunner.createIndex(
             "users",
             new TableIndex({
-                name: "IDX_USERS_NAME",
-                columnNames: ["name"],
+                name: "IDX_USERS_FULLNAME",
+                columnNames: ["fullName"],
             }),
         );
 
@@ -71,31 +72,9 @@ export class UsersMigration1736076526356 implements MigrationInterface {
                 isUnique: true,
             }),
         );
-
-        // Create trigger for updated_at
-        await queryRunner.query(`
-            CREATE OR REPLACE FUNCTION update_updated_at_column()
-            RETURNS TRIGGER AS $$
-            BEGIN
-                NEW.updated_at = CURRENT_TIMESTAMP;
-                RETURN NEW;
-            END;
-            $$ language 'plpgsql';
-
-            CREATE TRIGGER update_users_updated_at
-                BEFORE UPDATE ON users
-                FOR EACH ROW
-                EXECUTE FUNCTION update_updated_at_column();
-        `);
     }
 
     async down(queryRunner: QueryRunner): Promise<void> {
-        // Drop trigger first
-        await queryRunner.query(`
-            DROP TRIGGER IF EXISTS update_users_updated_at ON users;
-            DROP FUNCTION IF EXISTS update_updated_at_column();
-        `);
-
         // Drop table
         await queryRunner.dropTable("users");
 

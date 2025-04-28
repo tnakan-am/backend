@@ -8,6 +8,7 @@ import {
   Request,
   UseGuards,
   HttpException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthGuard } from './auth.guard';
@@ -28,7 +29,7 @@ export class AuthController {
     try {
       return await this.authService.signIn(signInDto.email, signInDto.password);
     } catch (error) {
-      if (error instanceof HttpException) {
+      if (error instanceof UnauthorizedException) {
         throw error;
       }
       throw new HttpException(
@@ -49,7 +50,14 @@ export class AuthController {
     try {
       const user = await this.usersService.create(createUserDto);
       return {
-        message: 'Registration successful! Please check your email to verify your account.',
+        success: true,
+        data: {
+          id: user.id,
+          email: user.email,
+          fullName: user.fullName,
+          type: user.type,
+        },
+        message: 'Registration successful!',
       };
     } catch (error) {
       if (error instanceof HttpException) {

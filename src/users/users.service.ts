@@ -20,10 +20,6 @@ export class UserService {
     private readonly userRepository: Repository<Users>,
   ) {}
 
-  private readonly users = [
-     this.userRepository.find()
-  ];
-
   async create(createUserDto: CreateUserDto): Promise<Users> {
     try {
       createUserDto.password = await this.hashPassword(createUserDto.password);

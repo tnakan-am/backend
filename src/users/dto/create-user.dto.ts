@@ -1,11 +1,10 @@
-import { IsString, IsEmail, IsNotEmpty, MinLength, IsIn, Matches, IsEnum } from 'class-validator';
+import { IsString, IsEmail, IsNotEmpty, MinLength, IsIn, Matches, IsEnum, IsOptional } from 'class-validator';
 
 export enum UserType {
   BUYER = 'buyer',
   SELLER = 'seller',
   ADMIN = 'admin'
 }
-
 
 export class CreateUserDto {
   @IsString()
@@ -22,11 +21,10 @@ export class CreateUserDto {
   password: string;
 
   @IsString()
-  @IsEnum(UserType)
-  type: UserType;
-
-  @IsString()
-  @IsNotEmpty()
-  @Matches(/^\+374\d{8}$/)
+  @IsOptional()
   phone: string;
+
+  @IsEnum(UserType)
+  @IsNotEmpty()
+  type: UserType;
 }
