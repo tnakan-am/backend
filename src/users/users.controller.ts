@@ -6,6 +6,8 @@ import {
   Patch,
   Param,
   Delete,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { UserService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -31,28 +33,7 @@ export class UserController {
         message: 'User Created Successfully',
       };
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
-  }
-
-  @Get()
-  async findAll() {
-    try {
-      const data =
-        await this.userService.findAll();
-      return {
-        success: true,
-        data,
-        message: 'User Fetched Successfully',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
     }
   }
 
@@ -62,16 +43,13 @@ export class UserController {
       const data = await this.userService.findOne(
         +id,
       );
-      return {
-        success: true,
-        data,
-        message: 'User Fetched Successfully',
-      };
+      if (data.password) {
+        data.password = undefined;
+      }
+
+      return data;
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
     }
   }
 
@@ -90,10 +68,7 @@ export class UserController {
         message: 'User Updated Successfully',
       };
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
     }
   }
 
@@ -106,10 +81,7 @@ export class UserController {
         message: 'User Deleted Successfully',
       };
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
     }
   }
 }
