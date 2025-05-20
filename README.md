@@ -25,6 +25,12 @@
 ## Description
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Postgesql port
+
+```bash
+  5433
+```
+
 
 ## Project setup
 
