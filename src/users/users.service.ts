@@ -11,8 +11,6 @@ import { Repository } from 'typeorm';
 import { Users } from './entities/user.entity';
 import * as bcrypt from 'bcrypt';
 
-export type User = any;
-
 @Injectable()
 export class UserService {
   constructor(
@@ -26,15 +24,12 @@ export class UserService {
       const userData = await this.userRepository.create(createUserDto);
       return await this.userRepository.save(userData);
     } catch (error) {
-      if (error.code === '23505') { // Unique violation error code in PostgreSQL
+      if (error.code === '23505') {
+        // Unique violation error code in PostgreSQL
         throw new HttpException('Email already exists', 409);
       }
       throw new InternalServerErrorException('Error creating user');
     }
-  }
-
-  async findAll(): Promise<Users[]> {
-    return await this.userRepository.find();
   }
 
   async findOne(id: number): Promise<Users> {
@@ -50,7 +45,9 @@ export class UserService {
       const existingUser = await this.findOne(id);
 
       if (updateUserDto.password) {
-        updateUserDto.password = await this.hashPassword(updateUserDto.password);
+        updateUserDto.password = await this.hashPassword(
+          updateUserDto.password,
+        );
       }
 
       const userData = this.userRepository.merge(existingUser, updateUserDto);

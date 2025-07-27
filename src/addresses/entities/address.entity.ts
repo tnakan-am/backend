@@ -7,33 +7,30 @@ import {
 } from 'typeorm';
 
 @Entity()
-export class Users {
+export class Address {
   @PrimaryGeneratedColumn()
   id: number;
 
+  @Column({
+    type: 'int',
+    nullable: false,
+  })
+  userId: number;
+
   @Column()
-  fullName: string;
+  city: string;
 
   @Column({ nullable: true, unique: true })
-  hvhh: string;
+  region: string;
 
   @Column()
-  email: string;
+  street: string;
 
   @Column()
-  password: string;
-
-  @Column({
-    type: 'enum',
-    enum: ['customer', 'business', 'admin'],
-  })
-  type: string;
+  house: string;
 
   @Column({ nullable: true })
-  phone: string;
-
-  @Column({ type: 'timestamp', nullable: true })
-  verifiedAt: Date;
+  zip: string;
 
   @CreateDateColumn()
   createdAt: Date;
