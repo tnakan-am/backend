@@ -4,18 +4,22 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { Users } from '../../users/entities/user.entity';
 
 @Entity()
 export class Address {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({
-    type: 'int',
-    nullable: false,
-  })
+  @Column()
   userId: number;
+
+  @ManyToOne(() => Users, (user) => user.addresses)
+  @JoinColumn({ name: 'userId' })
+  user: Users;
 
   @Column()
   city: string;
