@@ -15,18 +15,12 @@ import { UpdateUserDto } from './dto/update-user.dto';
 
 @Controller('users') //route group
 export class UserController {
-  constructor(
-    private readonly userService: UserService,
-  ) {}
+  constructor(private readonly userService: UserService) {}
 
   @Post()
-  async create(
-    @Body() createUserDto: CreateUserDto,
-  ) {
+  async create(@Body() createUserDto: CreateUserDto) {
     try {
-      await this.userService.create(
-        createUserDto,
-      );
+      await this.userService.create(createUserDto);
 
       return {
         success: true,
@@ -40,9 +34,7 @@ export class UserController {
   @Get(':id')
   async findOne(@Param('id') id: string) {
     try {
-      const data = await this.userService.findOne(
-        +id,
-      );
+      const data = await this.userService.findOne(+id);
       if (data.password) {
         data.password = undefined;
       }
@@ -54,15 +46,9 @@ export class UserController {
   }
 
   @Patch(':id')
-  async update(
-    @Param('id') id: string,
-    @Body() updateUserDto: UpdateUserDto,
-  ) {
+  async update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
     try {
-      await this.userService.update(
-        +id,
-        updateUserDto,
-      );
+      await this.userService.update(+id, updateUserDto);
       return {
         success: true,
         message: 'User Updated Successfully',

@@ -15,12 +15,14 @@ import { AuthGuard } from './auth.guard';
 import { UserService } from '../users/users.service';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import { SignInDto } from './sign-in.dto';
+import { AddressService } from '../addresses/address.service';
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly usersService: UserService,
+    private readonly addressService: AddressService,
   ) {}
 
   @HttpCode(HttpStatus.OK)
@@ -49,6 +51,12 @@ export class AuthController {
   async register(@Body() createUserDto: CreateUserDto) {
     try {
       const user = await this.usersService.create(createUserDto);
+      if (createUserDto.address.city) {
+        await this.addressService.create({
+          userId: user.id,
+          ...createUserDto.address,
+        });
+      }
       return {
         success: true,
         data: {

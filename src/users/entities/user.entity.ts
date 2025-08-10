@@ -4,7 +4,9 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  OneToMany,
 } from 'typeorm';
+import { Address } from '../../addresses/entities/address.entity';
 
 @Entity()
 export class Users {
@@ -14,6 +16,9 @@ export class Users {
   @Column()
   fullName: string;
 
+  @Column({ nullable: true, unique: true })
+  hvhh: string;
+
   @Column()
   email: string;
 
@@ -22,7 +27,7 @@ export class Users {
 
   @Column({
     type: 'enum',
-    enum: ['buyer', 'seller', 'admin'],
+    enum: ['customer', 'business', 'admin'],
   })
   type: string;
 
@@ -37,4 +42,7 @@ export class Users {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @OneToMany(() => Address, (address) => address.user)
+  addresses: Address[];
 }

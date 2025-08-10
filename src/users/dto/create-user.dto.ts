@@ -1,9 +1,17 @@
-import { IsString, IsEmail, IsNotEmpty, MinLength, IsIn, Matches, IsEnum, IsOptional } from 'class-validator';
+import {
+  IsString,
+  IsEmail,
+  IsNotEmpty,
+  MinLength,
+  IsEnum,
+  IsOptional,
+} from 'class-validator';
+import { CreateAddressDto } from '../../addresses/dto/create-address.dto';
 
 export enum UserType {
-  BUYER = 'buyer',
-  SELLER = 'seller',
-  ADMIN = 'admin'
+  CUSTOMER = 'customer',
+  BUSINESS = 'business',
+  ADMIN = 'admin',
 }
 
 export class CreateUserDto {
@@ -14,6 +22,11 @@ export class CreateUserDto {
   @IsEmail()
   @IsNotEmpty()
   email: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  hvhh: string;
 
   @IsString()
   @MinLength(8)
@@ -27,4 +40,7 @@ export class CreateUserDto {
   @IsEnum(UserType)
   @IsNotEmpty()
   type: UserType;
+
+  @IsOptional()
+  address: CreateAddressDto;
 }

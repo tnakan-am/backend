@@ -4,6 +4,7 @@ import { AppService } from './app.service';
 import { UserModule } from './users/users.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Users } from './users/entities/user.entity';
+import { Address } from './addresses/entities/address.entity';
 import { AuthModule } from './auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
 
@@ -19,8 +20,10 @@ import { ConfigModule } from '@nestjs/config';
       username: process.env.DB_USERNAME || 'postgres',
       password: process.env.DB_PASSWORD || '852456AA',
       database: process.env.DB_NAME || 'homemade',
-      entities: [Users],
+      entities: [Users, Address],
       synchronize: process.env.NODE_ENV !== 'production',
+      migrationsRun: true,
+      migrations: ['dist/migrations/*.js'],
     }),
     UserModule,
     AuthModule,
