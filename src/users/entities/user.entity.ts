@@ -34,6 +34,12 @@ export class Users {
   @Column({ nullable: true })
   phone: string;
 
+  @Column({ default: false })
+  verified: boolean;
+
+  @Column({ nullable: true })
+  verificationToken: string;
+
   @Column({ type: 'timestamp', nullable: true })
   verifiedAt: Date;
 

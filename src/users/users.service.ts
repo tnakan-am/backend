@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Users } from './entities/user.entity';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class UserService {
@@ -21,7 +22,14 @@ export class UserService {
   async create(createUserDto: CreateUserDto): Promise<Users> {
     try {
       createUserDto.password = await this.hashPassword(createUserDto.password);
-      const userData = await this.userRepository.create(createUserDto);
+      const verificationToken = this.generateVerificationToken();
+
+      const userData = await this.userRepository.create({
+        ...createUserDto,
+        verificationToken,
+        verified: false,
+      });
+
       return await this.userRepository.save(userData);
     } catch (error) {
       if (error.code === '23505') {
@@ -82,5 +90,41 @@ export class UserService {
       throw new NotFoundException(`User with email ${email} not found`);
     }
     return user;
+  }
+
+  async verifyEmail(token: string): Promise<Users> {
+    const user = await this.userRepository.findOne({
+      where: { verificationToken: token },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Invalid verification token');
+    }
+
+    if (user.verified) {
+      throw new HttpException('Email already verified', 400);
+    }
+
+    user.verified = true;
+    user.verifiedAt = new Date();
+    user.verificationToken = null;
+
+    return await this.userRepository.save(user);
+  }
+
+  async findByVerificationToken(token: string): Promise<Users> {
+    const user = await this.userRepository.findOne({
+      where: { verificationToken: token },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Invalid verification token');
+    }
+
+    return user;
+  }
+
+  private generateVerificationToken(): string {
+    return crypto.randomBytes(32).toString('hex');
   }
 }
