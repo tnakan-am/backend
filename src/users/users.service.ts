@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -14,6 +15,8 @@ import * as crypto from 'crypto';
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
+
   constructor(
     @InjectRepository(Users)
     private readonly userRepository: Repository<Users>,
@@ -24,7 +27,7 @@ export class UserService {
       createUserDto.password = await this.hashPassword(createUserDto.password);
       const verificationToken = this.generateVerificationToken();
 
-      const userData = await this.userRepository.create({
+      const userData = this.userRepository.create({
         ...createUserDto,
         verificationToken,
         verified: false,
@@ -34,8 +37,15 @@ export class UserService {
     } catch (error) {
       if (error.code === '23505') {
         // Unique violation error code in PostgreSQL
+        this.logger.warn(
+          `Attempted to create user with duplicate email: ${createUserDto.email}`,
+        );
         throw new HttpException('Email already exists', 409);
       }
+      this.logger.error(
+        `Failed to create user: ${createUserDto.email}`,
+        error instanceof Error ? error.stack : error,
+      );
       throw new InternalServerErrorException('Error creating user');
     }
   }
@@ -64,6 +74,10 @@ export class UserService {
       if (error instanceof NotFoundException) {
         throw error;
       }
+      this.logger.error(
+        `Failed to update user with id: ${id}`,
+        error instanceof Error ? error.stack : error,
+      );
       throw new InternalServerErrorException('Error updating user');
     }
   }
@@ -76,6 +90,10 @@ export class UserService {
       if (error instanceof NotFoundException) {
         throw error;
       }
+      this.logger.error(
+        `Failed to remove user with id: ${id}`,
+        error instanceof Error ? error.stack : error,
+      );
       throw new InternalServerErrorException('Error removing user');
     }
   }
@@ -98,10 +116,14 @@ export class UserService {
     });
 
     if (!user) {
+      this.logger.warn(`Invalid verification token attempted: ${token}`);
       throw new NotFoundException('Invalid verification token');
     }
 
     if (user.verified) {
+      this.logger.warn(
+        `Attempted to verify already verified email: ${user.email}`,
+      );
       throw new HttpException('Email already verified', 400);
     }
 

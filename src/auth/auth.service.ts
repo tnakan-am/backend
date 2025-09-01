@@ -1,10 +1,12 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { UserService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly usersService: UserService,
     private readonly jwtService: JwtService,
@@ -16,6 +18,7 @@ export class AuthService {
       const isPasswordValid = await bcrypt.compare(pass, user.password);
 
       if (!isPasswordValid) {
+        this.logger.warn(`Failed login attempt for email: ${email}`);
         throw new UnauthorizedException('Invalid email or password');
       }
 
@@ -31,6 +34,7 @@ export class AuthService {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
+      this.logger.warn(`Failed login attempt for non-existent user: ${email}`);
       throw new UnauthorizedException('Invalid email or password');
     }
   }

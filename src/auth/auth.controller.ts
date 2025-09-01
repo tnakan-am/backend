@@ -10,6 +10,7 @@ import {
   HttpException,
   UnauthorizedException,
   Query,
+  Logger,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthGuard } from './auth.guard';
@@ -21,6 +22,8 @@ import { EmailService } from '../email/email.service';
 
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     private readonly authService: AuthService,
     private readonly usersService: UserService,
@@ -37,6 +40,10 @@ export class AuthController {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
+      this.logger.error(
+        `Unexpected error during login for email: ${signInDto.email}`,
+        error instanceof Error ? error.stack : error,
+      );
       throw new HttpException(
         'Internal server error during authentication',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -46,7 +53,7 @@ export class AuthController {
 
   @UseGuards(AuthGuard)
   @Get('profile')
-  getProfile(@Request() req) {
+  getProfile(@Request() req: any) {
     return req.user;
   }
 
@@ -69,7 +76,10 @@ export class AuthController {
           user.verificationToken,
         );
       } catch (emailError) {
-        console.error('Failed to send verification email:', emailError);
+        this.logger.warn(
+          `Failed to send verification email to ${user.email}`,
+          emailError instanceof Error ? emailError.stack : emailError,
+        );
         // Don't fail registration if email fails, but log the error
       }
 
@@ -89,6 +99,10 @@ export class AuthController {
       if (error instanceof HttpException) {
         throw error;
       }
+      this.logger.error(
+        `Unexpected error during registration for email: ${createUserDto.email}`,
+        error instanceof Error ? error.stack : error,
+      );
       throw new HttpException(
         'Internal server error during registration',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -123,6 +137,10 @@ export class AuthController {
       if (error instanceof HttpException) {
         throw error;
       }
+      this.logger.error(
+        `Unexpected error during email verification for token: ${token}`,
+        error instanceof Error ? error.stack : error,
+      );
       throw new HttpException(
         'Internal server error during email verification',
         HttpStatus.INTERNAL_SERVER_ERROR,
