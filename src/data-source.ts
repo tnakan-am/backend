@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 import { Users } from './users/entities/user.entity';
+import { Address } from './addresses/entities/address.entity';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -12,8 +13,9 @@ const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME || 'postgres',
   password: process.env.DB_PASSWORD || '852456AA',
   database: process.env.DB_NAME || 'homemade',
-  entities: [Users],
-  migrations: ['./migrations/*'],
+  entities: [Users, Address],
+  migrations: ['dist/migrations/*.js'],
+  synchronize: false,
 });
 
 export default AppDataSource;

@@ -5,11 +5,13 @@ import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { jwtConstants } from './constants';
 import { AddressesModule } from '../addresses/address.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
     UserModule,
     AddressesModule,
+    EmailModule,
     JwtModule.register({
       global: true,
       secret: jwtConstants.secret,

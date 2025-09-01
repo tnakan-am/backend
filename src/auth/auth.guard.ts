@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   Injectable,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { jwtConstants } from './constants';
@@ -10,12 +11,17 @@ import { Request } from 'express';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
+  private readonly logger = new Logger(AuthGuard.name);
+
   constructor(private jwtService: JwtService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const token = this.extractTokenFromHeader(request);
     if (!token) {
+      this.logger.warn(
+        `Unauthorized access attempt - no token provided: ${request.url}`,
+      );
       throw new UnauthorizedException();
     }
     try {
@@ -26,6 +32,9 @@ export class AuthGuard implements CanActivate {
       // so that we can access it in our route handlers
       request['user'] = payload;
     } catch {
+      this.logger.warn(
+        `Unauthorized access attempt - invalid token: ${request.url}`,
+      );
       throw new UnauthorizedException();
     }
     return true;

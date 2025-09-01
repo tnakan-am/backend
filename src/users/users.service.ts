@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -10,9 +11,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Users } from './entities/user.entity';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
+
   constructor(
     @InjectRepository(Users)
     private readonly userRepository: Repository<Users>,
@@ -21,13 +25,27 @@ export class UserService {
   async create(createUserDto: CreateUserDto): Promise<Users> {
     try {
       createUserDto.password = await this.hashPassword(createUserDto.password);
-      const userData = await this.userRepository.create(createUserDto);
+      const verificationToken = this.generateVerificationToken();
+
+      const userData = this.userRepository.create({
+        ...createUserDto,
+        verificationToken,
+        verified: false,
+      });
+
       return await this.userRepository.save(userData);
     } catch (error) {
       if (error.code === '23505') {
         // Unique violation error code in PostgreSQL
+        this.logger.warn(
+          `Attempted to create user with duplicate email: ${createUserDto.email}`,
+        );
         throw new HttpException('Email already exists', 409);
       }
+      this.logger.error(
+        `Failed to create user: ${createUserDto.email}`,
+        error instanceof Error ? error.stack : error,
+      );
       throw new InternalServerErrorException('Error creating user');
     }
   }
@@ -56,6 +74,10 @@ export class UserService {
       if (error instanceof NotFoundException) {
         throw error;
       }
+      this.logger.error(
+        `Failed to update user with id: ${id}`,
+        error instanceof Error ? error.stack : error,
+      );
       throw new InternalServerErrorException('Error updating user');
     }
   }
@@ -68,6 +90,10 @@ export class UserService {
       if (error instanceof NotFoundException) {
         throw error;
       }
+      this.logger.error(
+        `Failed to remove user with id: ${id}`,
+        error instanceof Error ? error.stack : error,
+      );
       throw new InternalServerErrorException('Error removing user');
     }
   }
@@ -82,5 +108,45 @@ export class UserService {
       throw new NotFoundException(`User with email ${email} not found`);
     }
     return user;
+  }
+
+  async verifyEmail(token: string): Promise<Users> {
+    const user = await this.userRepository.findOne({
+      where: { verificationToken: token },
+    });
+
+    if (!user) {
+      this.logger.warn(`Invalid verification token attempted: ${token}`);
+      throw new NotFoundException('Invalid verification token');
+    }
+
+    if (user.verified) {
+      this.logger.warn(
+        `Attempted to verify already verified email: ${user.email}`,
+      );
+      throw new HttpException('Email already verified', 400);
+    }
+
+    user.verified = true;
+    user.verifiedAt = new Date();
+    user.verificationToken = null;
+
+    return await this.userRepository.save(user);
+  }
+
+  async findByVerificationToken(token: string): Promise<Users> {
+    const user = await this.userRepository.findOne({
+      where: { verificationToken: token },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Invalid verification token');
+    }
+
+    return user;
+  }
+
+  private generateVerificationToken(): string {
+    return crypto.randomBytes(32).toString('hex');
   }
 }
