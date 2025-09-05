@@ -53,12 +53,6 @@ export class AuthController {
     }
   }
 
-  @UseGuards(AuthGuard)
-  @Get('profile')
-  getProfile(@Request() req: any) {
-    return req.user;
-  }
-
   @Public()
   @Post('register')
   async register(@Body() createUserDto: CreateUserDto) {
