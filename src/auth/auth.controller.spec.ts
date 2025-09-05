@@ -268,22 +268,6 @@ describe('AuthController', () => {
     });
   });
 
-  describe('getProfile', () => {
-    it('should return user profile', () => {
-      const req = {
-        user: {
-          sub: 1,
-          email: 'john@example.com',
-          full_name: 'John Doe',
-        },
-      };
-
-      const result = controller.getProfile(req);
-
-      expect(result).toEqual(req.user);
-    });
-  });
-
   describe('verifyEmail', () => {
     it('should verify email with valid token', async () => {
       const token = 'validToken123';

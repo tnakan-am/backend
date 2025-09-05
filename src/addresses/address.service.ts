@@ -53,13 +53,13 @@ export class AddressService {
     updateAddressDto: UpdateAddressDto,
   ): Promise<Address> {
     try {
-      const existingUser = await this.findOne(id);
+      const existing = await this.findOne(id);
 
-      const userData = this.addressRepository.merge(
-        existingUser,
+      const data = this.addressRepository.merge(
+        existing,
         updateAddressDto,
       );
-      return await this.addressRepository.save(userData);
+      return await this.addressRepository.save(data);
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw error;
@@ -89,10 +89,18 @@ export class AddressService {
   }
 
   async findAddress(id: number): Promise<Address> {
-    const user = await this.addressRepository.findOne({ where: { id } });
-    if (!user) {
+    const address = await this.addressRepository.findOne({ where: { id } });
+    if (!address) {
       throw new NotFoundException(`Address with id ${id} not found`);
     }
-    return user;
+    return address;
+  }
+
+  async findAddressByUserId(userId: number): Promise<Address> {
+    const address = await this.addressRepository.findOne({ where: { userId } });
+    if (!address) {
+      throw new NotFoundException(`Address with userId ${userId} not found`);
+    }
+    return address;
   }
 }

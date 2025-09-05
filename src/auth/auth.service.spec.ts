@@ -75,13 +75,20 @@ describe('AuthService', () => {
 
       const result = await service.signIn('john@example.com', 'password123');
 
-      expect(result).toEqual({ access_token: mockToken });
+      const expectedUser = { ...mockUser };
+      delete expectedUser.password;
+      
+      expect(result).toEqual({ 
+        access_token: mockToken,
+        user: expectedUser 
+      });
       expect(mockUserService.findUser).toHaveBeenCalledWith('john@example.com');
       expect(bcrypt.compare).toHaveBeenCalledWith('password123', 'hashedPassword');
       expect(mockJwtService.signAsync).toHaveBeenCalledWith({
         sub: 1,
         full_name: 'John Doe',
         email: 'john@example.com',
+        type: UserType.CUSTOMER,
       });
     });
 

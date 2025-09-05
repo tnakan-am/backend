@@ -1,15 +1,21 @@
 import { AuthGuard } from './auth.guard';
 import { JwtService } from '@nestjs/jwt';
 import { UnauthorizedException } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 
 describe('AuthGuard', () => {
   let guard: AuthGuard;
   let jwtService: JwtService;
+  let reflector: Reflector;
   let mockLogger: any;
 
   beforeEach(() => {
     const mockJwtService = {
       verifyAsync: jest.fn(),
+    };
+
+    const mockReflector = {
+      getAllAndOverride: jest.fn(),
     };
 
     mockLogger = {
@@ -21,7 +27,8 @@ describe('AuthGuard', () => {
     };
 
     jwtService = mockJwtService as any;
-    guard = new AuthGuard(jwtService);
+    reflector = mockReflector as any;
+    guard = new AuthGuard(jwtService, reflector);
     (guard as any).logger = mockLogger;
   });
 
@@ -58,17 +65,29 @@ describe('AuthGuard', () => {
 
       mockRequest.headers.authorization = `Bearer ${token}`;
       (jwtService.verifyAsync as jest.Mock).mockResolvedValue(payload);
+      (reflector.getAllAndOverride as jest.Mock).mockReturnValue(false); // Not a public route
 
       const result = await guard.canActivate(mockContext);
 
       expect(result).toBe(true);
       expect(jwtService.verifyAsync).toHaveBeenCalledWith(token, {
-        secret: undefined,
+        secret: 'DO_NOT_USE_THIS_VALUE_IN_PRODUCTION',
       });
       expect(mockRequest.user).toEqual(payload);
     });
 
-    it('should throw UnauthorizedException when no token is provided', async () => {
+    it('should allow access to public routes without token', async () => {
+      (reflector.getAllAndOverride as jest.Mock).mockReturnValue(true); // Public route
+      
+      const result = await guard.canActivate(mockContext);
+      
+      expect(result).toBe(true);
+      expect(jwtService.verifyAsync).not.toHaveBeenCalled();
+    });
+
+    it('should throw UnauthorizedException when no token is provided for protected routes', async () => {
+      (reflector.getAllAndOverride as jest.Mock).mockReturnValue(false); // Not a public route
+      
       await expect(guard.canActivate(mockContext)).rejects.toThrow(
         UnauthorizedException,
       );
@@ -80,6 +99,7 @@ describe('AuthGuard', () => {
     it('should throw UnauthorizedException when token is invalid', async () => {
       const token = 'invalid-jwt-token';
       mockRequest.headers.authorization = `Bearer ${token}`;
+      (reflector.getAllAndOverride as jest.Mock).mockReturnValue(false); // Not a public route
       (jwtService.verifyAsync as jest.Mock).mockRejectedValue(
         new Error('Invalid token'),
       );
@@ -94,6 +114,7 @@ describe('AuthGuard', () => {
 
     it('should throw UnauthorizedException for malformed authorization header', async () => {
       mockRequest.headers.authorization = 'InvalidHeader';
+      (reflector.getAllAndOverride as jest.Mock).mockReturnValue(false); // Not a public route
 
       await expect(guard.canActivate(mockContext)).rejects.toThrow(
         UnauthorizedException,
@@ -102,6 +123,7 @@ describe('AuthGuard', () => {
 
     it('should handle token without Bearer prefix', async () => {
       mockRequest.headers.authorization = 'jwt-token-without-bearer';
+      (reflector.getAllAndOverride as jest.Mock).mockReturnValue(false); // Not a public route
 
       await expect(guard.canActivate(mockContext)).rejects.toThrow(
         UnauthorizedException,
@@ -117,6 +139,7 @@ describe('AuthGuard', () => {
       };
 
       mockRequest.headers.authorization = `Bearer ${token}`;
+      (reflector.getAllAndOverride as jest.Mock).mockReturnValue(false); // Not a public route
       (jwtService.verifyAsync as jest.Mock).mockResolvedValue(payload);
 
       await guard.canActivate(mockContext);
@@ -136,6 +159,7 @@ describe('AuthGuard', () => {
     it('should handle JWT verification errors properly', async () => {
       const token = 'expired-jwt-token';
       mockRequest.headers.authorization = `Bearer ${token}`;
+      (reflector.getAllAndOverride as jest.Mock).mockReturnValue(false); // Not a public route
       (jwtService.verifyAsync as jest.Mock).mockRejectedValue(
         new Error('jwt expired'),
       );
@@ -144,12 +168,13 @@ describe('AuthGuard', () => {
         UnauthorizedException,
       );
       expect(jwtService.verifyAsync).toHaveBeenCalledWith(token, {
-        secret: undefined,
+        secret: 'DO_NOT_USE_THIS_VALUE_IN_PRODUCTION',
       });
     });
 
     it('should log warning for unauthorized access attempts', async () => {
       mockRequest.headers.authorization = '';
+      (reflector.getAllAndOverride as jest.Mock).mockReturnValue(false); // Not a public route
 
       await expect(guard.canActivate(mockContext)).rejects.toThrow(
         UnauthorizedException,
