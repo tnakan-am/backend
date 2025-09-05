@@ -8,7 +8,6 @@ import { Address } from './addresses/entities/address.entity';
 import { AuthModule } from './auth/auth.module';
 import { EmailModule } from './email/email.module';
 import { ConfigModule } from '@nestjs/config';
-import { ProductsModule } from './products/products.module';
 
 @Module({
   imports: [
@@ -30,7 +29,6 @@ import { ProductsModule } from './products/products.module';
     UserModule,
     AuthModule,
     EmailModule,
-    ProductsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
