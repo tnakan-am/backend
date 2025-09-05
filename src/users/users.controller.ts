@@ -32,6 +32,7 @@ export class UserController {
   }
 
   @Get(':id')
+  @Roles(UserType.ADMIN)
   async findOne(@Param('id') id: string) {
     try {
       const data = await this.userService.findOne(+id);

@@ -19,6 +19,7 @@ import { CreateUserDto } from '../users/dto/create-user.dto';
 import { SignInDto } from './sign-in.dto';
 import { AddressService } from '../addresses/address.service';
 import { EmailService } from '../email/email.service';
+import { Public } from './public.decorator';
 
 @Controller('auth')
 export class AuthController {
@@ -31,6 +32,7 @@ export class AuthController {
     private readonly emailService: EmailService,
   ) {}
 
+  @Public()
   @HttpCode(HttpStatus.OK)
   @Post('login')
   async signIn(@Body() signInDto: SignInDto) {
@@ -57,6 +59,7 @@ export class AuthController {
     return req.user;
   }
 
+  @Public()
   @Post('register')
   async register(@Body() createUserDto: CreateUserDto) {
     try {
@@ -110,6 +113,7 @@ export class AuthController {
     }
   }
 
+  @Public()
   @Get('verify-email')
   async verifyEmail(@Query('token') token: string) {
     try {
