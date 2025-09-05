@@ -5,6 +5,7 @@ import {
   MinLength,
   IsEnum,
   IsOptional,
+  IsPhoneNumber,
 } from 'class-validator';
 import { CreateAddressDto } from '../../addresses/dto/create-address.dto';
 
@@ -24,9 +25,8 @@ export class CreateUserDto {
   email: string;
 
   @IsString()
-  @IsNotEmpty()
   @IsOptional()
-  hvhh: string;
+  hvhh?: string;
 
   @IsString()
   @MinLength(8)
@@ -34,7 +34,8 @@ export class CreateUserDto {
   password: string;
 
   @IsString()
-  @IsOptional()
+  @IsNotEmpty()
+  @IsPhoneNumber('AM')
   phone: string;
 
   @IsEnum(UserType)
@@ -42,5 +43,5 @@ export class CreateUserDto {
   type: UserType;
 
   @IsOptional()
-  address: CreateAddressDto;
+  address?: CreateAddressDto;
 }
