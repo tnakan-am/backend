@@ -22,6 +22,10 @@ export class AuthService {
         this.logger.warn(`Failed login attempt for email: ${email} - invalid password`);
         throw new UnauthorizedException('Invalid email or password');
       }
+      if (!user.verified) {
+        this.logger.warn(`User not verified: ${email}`);
+        throw new UnauthorizedException('User not verified');
+      }
 
       const payload = {
         sub: user.id,

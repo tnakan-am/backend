@@ -59,7 +59,7 @@ export class AuthController {
     try {
       const user = await this.usersService.create(createUserDto);
 
-      if (createUserDto.address.city) {
+      if (createUserDto.address?.city) {
         await this.addressService.create({
           userId: user.id,
           ...createUserDto.address,
