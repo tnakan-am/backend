@@ -155,16 +155,19 @@ describe('UserService', () => {
         addresses: [],
       };
 
-      mockUserRepository.findOneBy.mockResolvedValue(expectedUser);
+      mockUserRepository.findOne.mockResolvedValue(expectedUser);
 
       const result = await service.findOne(1);
 
-      expect(mockUserRepository.findOneBy).toHaveBeenCalledWith({ id: 1 });
+      expect(mockUserRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 1 },
+        relations: ['addresses'],
+      });
       expect(result).toEqual(expectedUser);
     });
 
     it('should throw NotFoundException if user not found', async () => {
-      mockUserRepository.findOneBy.mockResolvedValue(null);
+      mockUserRepository.findOne.mockResolvedValue(null);
 
       await expect(service.findOne(999)).rejects.toThrow(NotFoundException);
     });
@@ -215,6 +218,7 @@ describe('UserService', () => {
         type: UserType.CUSTOMER,
         phone: '+37491234567',
         verified: true,
+        addresses: [],
       };
 
       const mergedUser = {
@@ -222,19 +226,23 @@ describe('UserService', () => {
         ...updateUserDto,
       };
 
-      mockUserRepository.findOneBy.mockResolvedValue(existingUser);
+      mockUserRepository.findOne.mockResolvedValue(existingUser);
       mockUserRepository.merge.mockReturnValue(mergedUser);
       mockUserRepository.save.mockResolvedValue(mergedUser);
 
       const result = await service.update(1, updateUserDto);
 
+      expect(mockUserRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 1 },
+        relations: ['addresses'],
+      });
       expect(mockUserRepository.merge).toHaveBeenCalledWith(existingUser, updateUserDto);
       expect(mockUserRepository.save).toHaveBeenCalledWith(mergedUser);
       expect(result).toEqual(mergedUser);
     });
 
     it('should throw NotFoundException if user not found during update', async () => {
-      mockUserRepository.findOneBy.mockResolvedValue(null);
+      mockUserRepository.findOne.mockResolvedValue(null);
 
       await expect(service.update(999, {})).rejects.toThrow(NotFoundException);
     });
@@ -252,10 +260,11 @@ describe('UserService', () => {
         type: UserType.CUSTOMER,
         phone: '+37491234567',
         verified: true,
+        addresses: [],
       };
 
       (bcrypt.hash as jest.Mock).mockResolvedValue(hashedPassword);
-      mockUserRepository.findOneBy.mockResolvedValue(existingUser);
+      mockUserRepository.findOne.mockResolvedValue(existingUser);
       mockUserRepository.merge.mockReturnValue({ ...existingUser, password: hashedPassword });
       mockUserRepository.save.mockResolvedValue({ ...existingUser, password: hashedPassword });
 
@@ -276,19 +285,24 @@ describe('UserService', () => {
         type: UserType.CUSTOMER,
         phone: '+37491234567',
         verified: true,
+        addresses: [],
       };
 
-      mockUserRepository.findOneBy.mockResolvedValue(existingUser);
+      mockUserRepository.findOne.mockResolvedValue(existingUser);
       mockUserRepository.remove.mockResolvedValue(existingUser);
 
       const result = await service.remove(1);
 
+      expect(mockUserRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 1 },
+        relations: ['addresses'],
+      });
       expect(mockUserRepository.remove).toHaveBeenCalledWith(existingUser);
       expect(result).toEqual(existingUser);
     });
 
     it('should throw NotFoundException if user not found during removal', async () => {
-      mockUserRepository.findOneBy.mockResolvedValue(null);
+      mockUserRepository.findOne.mockResolvedValue(null);
 
       await expect(service.remove(999)).rejects.toThrow(NotFoundException);
     });
