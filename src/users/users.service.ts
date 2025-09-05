@@ -24,6 +24,18 @@ export class UserService {
 
   async create(createUserDto: CreateUserDto): Promise<Users> {
     try {
+      // Check if email already exists
+      const existingUser = await this.userRepository.findOne({
+        where: { email: createUserDto.email },
+      });
+      
+      if (existingUser) {
+        this.logger.warn(
+          `Attempted to create user with duplicate email: ${createUserDto.email}`,
+        );
+        throw new HttpException('Email already exists', 409);
+      }
+
       createUserDto.password = await this.hashPassword(createUserDto.password);
       const verificationToken = this.generateVerificationToken();
 
@@ -35,6 +47,11 @@ export class UserService {
 
       return await this.userRepository.save(userData);
     } catch (error) {
+      // Re-throw HttpException (like our duplicate email check)
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      
       if (error.code === '23505') {
         // Unique violation error code in PostgreSQL
         this.logger.warn(

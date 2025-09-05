@@ -19,7 +19,7 @@ export class Users {
   @Column({ nullable: true, unique: true })
   hvhh: string;
 
-  @Column()
+  @Column({ unique: true })
   email: string;
 
   @Column()

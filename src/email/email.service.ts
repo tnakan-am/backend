@@ -7,19 +7,31 @@ export class EmailService {
   private transporter;
 
   constructor() {
-    this.transporter = nodemailer.createTransport({
+    const config: any = {
       host: process.env.SMTP_HOST || 'localhost',
       port: parseInt(process.env.SMTP_PORT) || 587,
       secure: false,
-      auth: {
+      connectionTimeout: 5000, // 5 seconds
+      greetingTimeout: 5000, // 5 seconds
+      socketTimeout: 10000, // 10 seconds
+    };
+
+    // Only add auth if credentials are provided
+    if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+      config.auth = {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
-      },
-    });
+      };
+    }
+
+    this.transporter = nodemailer.createTransport(config);
   }
 
   async sendVerificationEmail(email: string, token: string) {
-    const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email?token=${token}`;
+    // If FRONTEND_URL is set, use it (for production with separate frontend)
+    // Otherwise, use the backend API endpoint directly
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000/auth';
+    const verificationUrl = `${baseUrl}/verify-email?token=${token}`;
 
     const mailOptions = {
       from: process.env.SMTP_FROM || 'noreply@example.com',
@@ -42,8 +54,15 @@ export class EmailService {
     };
 
     try {
-      await this.transporter.sendMail(mailOptions);
+      const info = await this.transporter.sendMail(mailOptions);
       this.logger.log(`Verification email sent successfully to: ${email}`);
+      this.logger.log(`Message ID: ${info.messageId}`);
+      
+      // If using Ethereal, log the preview URL
+      if (process.env.SMTP_HOST === 'smtp.ethereal.email') {
+        const previewUrl = nodemailer.getTestMessageUrl(info);
+        this.logger.log(`Preview URL: ${previewUrl}`);
+      }
     } catch (error) {
       this.logger.error(
         `Failed to send verification email to ${email}`,

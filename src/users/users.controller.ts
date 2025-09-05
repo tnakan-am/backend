@@ -10,9 +10,9 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { UserService } from './users.service';
-import { CreateUserDto } from './dto/create-user.dto';
+import { CreateUserDto, UserType } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-
+import { Roles } from '../auth/roles.decorator';
 @Controller('users') //route group
 export class UserController {
   constructor(private readonly userService: UserService) {}
@@ -59,6 +59,7 @@ export class UserController {
   }
 
   @Delete(':id')
+  @Roles(UserType.ADMIN)
   async remove(@Param('id') id: string) {
     try {
       await this.userService.remove(+id);
