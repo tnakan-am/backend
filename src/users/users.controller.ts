@@ -8,11 +8,13 @@ import {
   Delete,
   HttpException,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { UserService } from './users.service';
 import { CreateUserDto, UserType } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/roles.guard';
 @Controller('users') //route group
 export class UserController {
   constructor(private readonly userService: UserService) {}
@@ -32,6 +34,7 @@ export class UserController {
   }
 
   @Get(':id')
+  @UseGuards(RolesGuard)
   @Roles(UserType.ADMIN)
   async findOne(@Param('id') id: string) {
     try {
@@ -60,6 +63,7 @@ export class UserController {
   }
 
   @Delete(':id')
+  @UseGuards(RolesGuard)
   @Roles(UserType.ADMIN)
   async remove(@Param('id') id: string) {
     try {
