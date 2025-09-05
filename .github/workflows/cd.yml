@@ -1,0 +1,275 @@
+name: CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Job 1: Build and Push Docker Image
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+    
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+        build-args: |
+          BUILD_DATE=${{ github.event.head_commit.timestamp }}
+          VCS_REF=${{ github.sha }}
+          VERSION=${{ github.ref_name }}
+    
+    - name: Generate SBOM
+      uses: anchore/sbom-action@v0
+      with:
+        image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        format: spdx-json
+        output-file: sbom.spdx.json
+    
+    - name: Upload SBOM
+      uses: actions/upload-artifact@v4
+      with:
+        name: sbom
+        path: sbom.spdx.json
+        retention-days: 30
+
+  # Job 2: Deploy to Staging
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
+    environment:
+      name: staging
+      url: https://staging.example.com
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+    
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.STAGING_KUBECONFIG }}" | base64 -d > kubeconfig
+        export KUBECONFIG=$(pwd)/kubeconfig
+    
+    - name: Deploy to Kubernetes
+      run: |
+        # Update image in deployment
+        kubectl set image deployment/backend-app \
+          backend=${{ needs.build-and-push.outputs.image-tag }} \
+          --namespace=staging
+        
+        # Wait for rollout to complete
+        kubectl rollout status deployment/backend-app \
+          --namespace=staging \
+          --timeout=5m
+    
+    - name: Run smoke tests
+      run: |
+        # Wait for service to be ready
+        sleep 30
+        
+        # Run basic health checks
+        curl -f https://staging.example.com/health || exit 1
+        
+        # Run API smoke tests
+        npm run test:smoke -- --env=staging
+      env:
+        STAGING_API_URL: https://staging.example.com
+        TEST_AUTH_TOKEN: ${{ secrets.STAGING_TEST_TOKEN }}
+    
+    - name: Notify Slack
+      if: always()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        text: 'Staging deployment ${{ job.status }}'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        fields: repo,message,commit,author,action,eventName,ref,workflow
+
+  # Job 3: Deploy to Production
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-staging]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.environment == 'production'
+    environment:
+      name: production
+      url: https://api.example.com
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+    
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.PRODUCTION_KUBECONFIG }}" | base64 -d > kubeconfig
+        export KUBECONFIG=$(pwd)/kubeconfig
+    
+    - name: Create backup
+      run: |
+        # Backup current deployment
+        kubectl get deployment backend-app -o yaml \
+          --namespace=production > backup-$(date +%s).yaml
+    
+    - name: Deploy to Kubernetes (Blue-Green)
+      run: |
+        # Deploy to green environment
+        kubectl set image deployment/backend-app-green \
+          backend=${{ needs.build-and-push.outputs.image-tag }} \
+          --namespace=production
+        
+        # Wait for green deployment to be ready
+        kubectl rollout status deployment/backend-app-green \
+          --namespace=production \
+          --timeout=10m
+        
+        # Run health checks on green
+        GREEN_URL=$(kubectl get service backend-app-green -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' --namespace=production)
+        curl -f http://$GREEN_URL/health || exit 1
+        
+        # Switch traffic to green
+        kubectl patch service backend-app \
+          -p '{"spec":{"selector":{"version":"green"}}}' \
+          --namespace=production
+        
+        # Update blue with new image for next deployment
+        kubectl set image deployment/backend-app-blue \
+          backend=${{ needs.build-and-push.outputs.image-tag }} \
+          --namespace=production
+    
+    - name: Run production tests
+      run: |
+        npm run test:prod
+      env:
+        PRODUCTION_API_URL: https://api.example.com
+        TEST_AUTH_TOKEN: ${{ secrets.PRODUCTION_TEST_TOKEN }}
+    
+    - name: Create GitHub Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          sbom.spdx.json
+        generate_release_notes: true
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Notify team
+      if: always()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        text: |
+          Production deployment ${{ job.status }}
+          Version: ${{ github.ref_name }}
+          Deployed by: ${{ github.actor }}
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        fields: repo,message,commit,author,action,eventName,ref,workflow
+
+  # Job 4: Rollback (Manual Trigger)
+  rollback:
+    name: Rollback Deployment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && failure()
+    environment:
+      name: ${{ github.event.inputs.environment }}
+    
+    steps:
+    - name: Configure kubectl
+      run: |
+        if [ "${{ github.event.inputs.environment }}" = "production" ]; then
+          echo "${{ secrets.PRODUCTION_KUBECONFIG }}" | base64 -d > kubeconfig
+        else
+          echo "${{ secrets.STAGING_KUBECONFIG }}" | base64 -d > kubeconfig
+        fi
+        export KUBECONFIG=$(pwd)/kubeconfig
+    
+    - name: Rollback deployment
+      run: |
+        kubectl rollout undo deployment/backend-app \
+          --namespace=${{ github.event.inputs.environment }}
+        
+        kubectl rollout status deployment/backend-app \
+          --namespace=${{ github.event.inputs.environment }} \
+          --timeout=5m
+    
+    - name: Notify rollback
+      uses: 8398a7/action-slack@v3
+      with:
+        status: 'warning'
+        text: |
+          Rollback initiated for ${{ github.event.inputs.environment }}
+          Triggered by: ${{ github.actor }}
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}

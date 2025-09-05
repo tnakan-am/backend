@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # Test Database
+  test-db:
+    image: postgres:14-alpine
+    environment:
+      - POSTGRES_USER=test
+      - POSTGRES_PASSWORD=test123
+      - POSTGRES_DB=testdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - test-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d testdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - test-network
+
+  # Test Application
+  test-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder  # Use builder stage for testing
+    command: npm run test:e2e
+    environment:
+      - NODE_ENV=test
+      - DB_HOST=test-db
+      - DB_PORT=5432
+      - DB_USERNAME=test
+      - DB_PASSWORD=test123
+      - DB_NAME=testdb
+      - JWT_SECRET=test-jwt-secret
+      - SMTP_HOST=mailhog
+      - SMTP_PORT=1025
+      - SMTP_USER=
+      - SMTP_PASS=
+      - SMTP_FROM=test@example.com
+      - FRONTEND_URL=http://localhost:3001
+    depends_on:
+      test-db:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    volumes:
+      - ./src:/usr/src/app/src
+      - ./test:/usr/src/app/test
+      - ./coverage:/usr/src/app/coverage
+    networks:
+      - test-network
+
+  # Mail Server for Testing
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025" # SMTP port
+      - "8025:8025" # Web UI port
+    networks:
+      - test-network
+
+  # Redis for Testing (if needed for caching/sessions)
+  test-redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    networks:
+      - test-network
+
+volumes:
+  test-db-data:
+
+networks:
+  test-network:
+    driver: bridge
