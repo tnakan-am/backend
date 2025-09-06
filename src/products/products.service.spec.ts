@@ -25,6 +25,7 @@ describe('ProductsService', () => {
     take: jest.fn(),
     getMany: jest.fn(),
     getCount: jest.fn(),
+    getOne: jest.fn(),
   };
 
   const mockProductRepository = {
@@ -139,7 +140,7 @@ describe('ProductsService', () => {
         hasPreviousPage: false,
       });
       expect(mockProductRepository.createQueryBuilder).toHaveBeenCalledWith('product');
-      expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledTimes(3);
+      expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledTimes(4); // user, category, subCategory, productCategory
       expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('product.salesCount', 'DESC');
     });
 
@@ -483,6 +484,7 @@ describe('ProductsService', () => {
       await service.getProducts(paginationDto);
 
       expect(mockProductRepository.createQueryBuilder).toHaveBeenCalledWith('product');
+      expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('product.user', 'user');
       expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('product.category', 'category');
       expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('product.subCategory', 'subCategory');
       expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('product.productCategory', 'productCategory');
@@ -511,6 +513,78 @@ describe('ProductsService', () => {
       await service.createProduct(dto);
 
       expect(mockProductRepository.save).toHaveBeenCalledWith(dto);
+    });
+  });
+
+  describe('getProductById', () => {
+    it('should return a product by id', async () => {
+      const product = {
+        id: 1,
+        name: 'Test Product',
+        price: 10.99,
+        userId: 1,
+        categoryId: 1,
+        subCategoryId: 1,
+        productCategoryId: 1,
+        description: 'Test',
+        rating: 4.5,
+        images: [],
+        attributes: null,
+        stockQuantity: 10,
+        sku: 'TEST001',
+        isActive: true,
+        isFeatured: false,
+        viewCount: 0,
+        salesCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      mockQueryBuilder.getOne.mockResolvedValue(product);
+
+      const result = await service.getProductById(1);
+
+      expect(result).toEqual(product);
+      expect(mockProductRepository.createQueryBuilder).toHaveBeenCalledWith('product');
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('product.id = :id', { id: 1 });
+      expect(mockQueryBuilder.getOne).toHaveBeenCalled();
+    });
+
+    it('should return null when product not found', async () => {
+      mockQueryBuilder.getOne.mockResolvedValue(null);
+
+      const result = await service.getProductById(999);
+
+      expect(result).toBeNull();
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('product.id = :id', { id: 999 });
+    });
+
+    it('should handle database errors', async () => {
+      mockQueryBuilder.getOne.mockRejectedValue(new Error('Database error'));
+
+      await expect(service.getProductById(1)).rejects.toThrow('Database error');
+    });
+
+    it('should include all relations when fetching by id', async () => {
+      const product = {
+        id: 1,
+        name: 'Test Product',
+        category: { id: 1, name: 'Groceries', slug: 'groceries' },
+        subCategory: { id: 1, name: 'Fruits', slug: 'fruits' },
+        productCategory: { id: 1, name: 'Apples', slug: 'apples' },
+      };
+
+      mockQueryBuilder.getOne.mockResolvedValue(product);
+
+      const result = await service.getProductById(1);
+
+      expect(result).toHaveProperty('category');
+      expect(result).toHaveProperty('subCategory');
+      expect(result).toHaveProperty('productCategory');
+      expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('product.user', 'user');
+      expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('product.category', 'category');
+      expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('product.subCategory', 'subCategory');
+      expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('product.productCategory', 'productCategory');
     });
   });
 });

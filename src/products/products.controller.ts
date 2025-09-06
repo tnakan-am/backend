@@ -1,8 +1,9 @@
-import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Query, ValidationPipe } from '@nestjs/common';
+import { Body, Controller, Get, HttpException, HttpStatus, Param, Patch, Post, Query, ValidationPipe } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import { ProductDto } from './dto/product.dto';
 import { PaginationDto, PaginatedResult } from './dto/pagination.dto';
 import { Product } from './entities/product.entity';
+import { UpdateProductDto } from './dto/update-product.dto';
 
 @Controller('products')
 export class ProductsController {
@@ -28,5 +29,10 @@ export class ProductsController {
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
     }
+  }
+
+  @Patch(':id')
+  async updateProduct(@Param('id') id: number, @Body() updateProductDto: UpdateProductDto) {
+    return this.productsService.updateProduct(id, updateProductDto);
   }
 }

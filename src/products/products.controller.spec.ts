@@ -16,6 +16,7 @@ describe('ProductsController', () => {
   const mockProductsService = {
     getProducts: jest.fn(),
     createProduct: jest.fn(),
+    getProductById: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -499,6 +500,91 @@ describe('ProductsController', () => {
 
       const result = await controller.createProduct(dto);
       expect(result).toBe(serviceResponse);
+    });
+  });
+
+  describe('getProductById', () => {
+    it('should return a product by id', async () => {
+      const product = {
+        id: 1,
+        name: 'Test Product',
+        price: 19.99,
+        userId: 1,
+        categoryId: 1,
+        subCategoryId: 1,
+        productCategoryId: 1,
+        description: 'Test description',
+        rating: 4.5,
+        images: ['image1.jpg'],
+        attributes: { color: 'red' },
+        stockQuantity: 100,
+        sku: 'TEST001',
+        isActive: true,
+        isFeatured: false,
+        viewCount: 10,
+        salesCount: 5,
+        category: { id: 1, name: 'Groceries', slug: 'groceries' },
+        subCategory: { id: 1, name: 'Fruits', slug: 'fruits' },
+        productCategory: { id: 1, name: 'Apples', slug: 'apples' },
+        user: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      mockProductsService.getProductById.mockResolvedValue(product);
+
+      const result = await controller.getProductById(1);
+
+      expect(result).toEqual(product);
+      expect(result.id).toBe(1);
+      expect(mockProductsService.getProductById).toHaveBeenCalledWith(1);
+      expect(mockProductsService.getProductById).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return null when product not found', async () => {
+      mockProductsService.getProductById.mockResolvedValue(null);
+
+      const result = await controller.getProductById(999);
+
+      expect(result).toBeNull();
+      expect(mockProductsService.getProductById).toHaveBeenCalledWith(999);
+    });
+
+    it('should handle service errors', async () => {
+      mockProductsService.getProductById.mockRejectedValue(new Error('Database error'));
+
+      await expect(controller.getProductById(1)).rejects.toThrow('Database error');
+      expect(mockProductsService.getProductById).toHaveBeenCalledWith(1);
+    });
+
+    it('should pass numeric id to service', async () => {
+      const product = { id: 42, name: 'Product 42' };
+      mockProductsService.getProductById.mockResolvedValue(product);
+
+      await controller.getProductById(42);
+
+      expect(mockProductsService.getProductById).toHaveBeenCalledWith(42);
+    });
+
+    it('should return product with all relations', async () => {
+      const productWithRelations = {
+        id: 1,
+        name: 'Product with Relations',
+        category: { id: 1, name: 'Category', slug: 'category' },
+        subCategory: { id: 2, name: 'SubCategory', slug: 'subcategory' },
+        productCategory: { id: 3, name: 'ProductCategory', slug: 'product-category' },
+        user: { id: 1, fullName: 'John Doe' },
+      };
+
+      mockProductsService.getProductById.mockResolvedValue(productWithRelations);
+
+      const result = await controller.getProductById(1);
+
+      expect(result).toHaveProperty('category');
+      expect(result).toHaveProperty('subCategory');
+      expect(result).toHaveProperty('productCategory');
+      expect(result).toHaveProperty('user');
+      expect(result.category.name).toBe('Category');
     });
   });
 });

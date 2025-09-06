@@ -67,10 +67,27 @@ export class Product {
   @Column({ type: 'text' })
   description: string;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
+  @Column({ 
+    type: 'decimal', 
+    precision: 10, 
+    scale: 2,
+    transformer: {
+      to: (value: number) => value,
+      from: (value: string) => parseFloat(value)
+    }
+  })
   price: number;
 
-  @Column({ type: 'decimal', precision: 3, scale: 2, default: 0 })
+  @Column({ 
+    type: 'decimal', 
+    precision: 3, 
+    scale: 2, 
+    default: 0,
+    transformer: {
+      to: (value: number) => value,
+      from: (value: string) => parseFloat(value)
+    }
+  })
   rating: number;
 
   @Column({ type: 'json', nullable: true })

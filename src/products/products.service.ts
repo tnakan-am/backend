@@ -4,6 +4,7 @@ import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { ProductDto } from './dto/product.dto';
 import { PaginationDto, PaginatedResult } from './dto/pagination.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
 
 @Injectable()
 export class ProductsService {
@@ -21,13 +22,21 @@ export class ProductsService {
       .leftJoinAndSelect('product.productCategory', 'productCategory')
       .select([
         'product', // all product columns
-        'category.id', 'category.name', 'category.slug', // only these from category
-        'subCategory.id', 'subCategory.name', 'subCategory.slug', // only these from subCategory
-        'productCategory.id', 'productCategory.name', 'productCategory.slug', // only these from productCategory
+        'category.id',
+        'category.name',
+        'category.slug', // only these from category
+        'subCategory.id',
+        'subCategory.name',
+        'subCategory.slug', // only these from subCategory
+        'productCategory.id',
+        'productCategory.name',
+        'productCategory.slug', // only these from productCategory
       ]);
   }
 
-  async getProducts(paginationDto: PaginationDto): Promise<PaginatedResult<Product>> {
+  async getProducts(
+    paginationDto: PaginationDto,
+  ): Promise<PaginatedResult<Product>> {
     const {
       page = 1,
       limit = 10,
@@ -57,26 +66,40 @@ export class ProductsService {
     }
 
     if (subCategoryId) {
-      queryBuilder.andWhere('product.subCategoryId = :subCategoryId', { subCategoryId });
+      queryBuilder.andWhere('product.subCategoryId = :subCategoryId', {
+        subCategoryId,
+      });
     }
 
     if (productCategoryId) {
-      queryBuilder.andWhere('product.productCategoryId = :productCategoryId', { productCategoryId });
+      queryBuilder.andWhere('product.productCategoryId = :productCategoryId', {
+        productCategoryId,
+      });
     }
 
     // Search functionality
     if (search) {
       queryBuilder.andWhere(
         '(product.name ILIKE :search OR product.description ILIKE :search OR product.sku ILIKE :search)',
-        { search: `%${search}%` }
+        { search: `%${search}%` },
       );
     }
 
     // Dynamic sorting
-    const allowedSortFields = ['salesCount', 'rating', 'viewCount', 'price', 'createdAt', 'name', 'stockQuantity'];
-    const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'salesCount';
+    const allowedSortFields = [
+      'salesCount',
+      'rating',
+      'viewCount',
+      'price',
+      'createdAt',
+      'name',
+      'stockQuantity',
+    ];
+    const sortField = allowedSortFields.includes(sortBy)
+      ? sortBy
+      : 'salesCount';
     queryBuilder.orderBy(`product.${sortField}`, sortOrder);
-    
+
     // Add secondary sorting for consistency
     if (sortField !== 'createdAt') {
       queryBuilder.addOrderBy('product.createdAt', 'DESC');
@@ -120,11 +143,26 @@ export class ProductsService {
 
   async getProductById(id: number) {
     try {
-    const queryBuilder = this.getQueryBuilder();
+      const queryBuilder = this.getQueryBuilder();
 
-    queryBuilder.andWhere('product.id = :id', { id });
+      queryBuilder.andWhere('product.id = :id', { id });
 
-    return await queryBuilder.getOne();
+      return await queryBuilder.getOne();
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  async updateProduct(id: number, updateProductDto: UpdateProductDto) {
+    try {
+      const existing = await this.productRepository.findOneBy({ id });
+      if (!existing) {
+        throw new HttpException('Product not found', HttpStatus.NOT_FOUND);
+      }
+
+      const data = this.productRepository.merge(existing, updateProductDto);
+
+      return await this.productRepository.save(data);
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
     }
