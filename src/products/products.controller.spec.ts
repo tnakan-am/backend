@@ -1,0 +1,766 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { HttpException, HttpStatus } from '@nestjs/common';
+import { ProductsController } from './products.controller';
+import { ProductsService } from './products.service';
+import { ProductDto } from './dto/product.dto';
+import { PaginationDto, PaginatedResult } from './dto/pagination.dto';
+import { Product } from './entities/product.entity';
+import { Category } from '../categories/entities/category.entity';
+import { SubCategory } from '../categories/entities/sub-category.entity';
+import { ProductCategory } from '../categories/entities/product-category.entity';
+import { Roles } from '../auth/roles.decorator';
+import { UserType } from '../users/dto/create-user.dto';
+import 'reflect-metadata';
+
+
+describe('ProductsController', () => {
+  let controller: ProductsController;
+  let service: ProductsService;
+
+  const mockProductsService = {
+    getProducts: jest.fn(),
+    createProduct: jest.fn(),
+    getProductById: jest.fn(),
+    updateProduct: jest.fn(),
+    deleteProduct: jest.fn(),
+  };
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [ProductsController],
+      providers: [
+        {
+          provide: ProductsService,
+          useValue: mockProductsService,
+        },
+      ],
+    }).compile();
+
+    controller = module.get<ProductsController>(ProductsController);
+    service = module.get<ProductsService>(ProductsService);
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should be defined', () => {
+    expect(controller).toBeDefined();
+  });
+
+  describe('getProducts', () => {
+    it('should return paginated products', async () => {
+      const category = new Category();
+      category.id = 1;
+      category.name = 'Groceries';
+
+      const subCategory = new SubCategory();
+      subCategory.id = 1;
+      subCategory.name = 'Fruits';
+
+      const productCategory = new ProductCategory();
+      productCategory.id = 1;
+      productCategory.name = 'Apples';
+
+      const products: Product[] = [
+        {
+          id: 1,
+          userId: 1,
+          categoryId: 1,
+          subCategoryId: 1,
+          productCategoryId: 1,
+          name: 'Red Apple',
+          description: 'Fresh red apples',
+          price: 2.99,
+          rating: 4.5,
+          images: ['apple1.jpg'],
+          attributes: { color: 'red' },
+          stockQuantity: 100,
+          sku: 'APL001',
+          isActive: true,
+          isFeatured: false,
+          viewCount: 0,
+          salesCount: 0,
+          category: category,
+          subCategory: subCategory,
+          productCategory: productCategory,
+          user: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ];
+
+      const expectedResult: PaginatedResult<Product> = {
+        data: products,
+        meta: {
+          total: 1,
+          page: 1,
+          limit: 10,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      };
+
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        skip: 0,
+      };
+
+      mockProductsService.getProducts.mockResolvedValue(expectedResult);
+
+      const result = await controller.getProducts(paginationDto);
+
+      expect(result).toEqual(expectedResult);
+      expect(result.meta.total).toBe(1);
+      expect(mockProductsService.getProducts).toHaveBeenCalledWith(paginationDto);
+    });
+
+    it('should return empty array when no products exist', async () => {
+      const expectedResult: PaginatedResult<Product> = {
+        data: [],
+        meta: {
+          total: 0,
+          page: 1,
+          limit: 10,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      };
+
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        skip: 0,
+      };
+
+      mockProductsService.getProducts.mockResolvedValue(expectedResult);
+
+      const result = await controller.getProducts(paginationDto);
+
+      expect(result.data).toEqual([]);
+      expect(result.meta.total).toBe(0);
+      expect(mockProductsService.getProducts).toHaveBeenCalledTimes(1);
+    });
+
+    it('should handle service errors', async () => {
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        skip: 0,
+      };
+
+      mockProductsService.getProducts.mockRejectedValue(new Error('Database error'));
+
+      await expect(controller.getProducts(paginationDto)).rejects.toThrow('Database error');
+      expect(mockProductsService.getProducts).toHaveBeenCalledTimes(1);
+    });
+
+    it('should handle pagination parameters', async () => {
+      const paginationDto: PaginationDto = {
+        page: 2,
+        limit: 20,
+        sortBy: 'price',
+        sortOrder: 'ASC',
+        categoryId: 1,
+        search: 'apple',
+        skip: 20,
+      };
+
+      const expectedResult: PaginatedResult<Product> = {
+        data: [],
+        meta: {
+          total: 100,
+          page: 2,
+          limit: 20,
+          totalPages: 5,
+          hasNextPage: true,
+          hasPreviousPage: true,
+        },
+      };
+
+      mockProductsService.getProducts.mockResolvedValue(expectedResult);
+
+      const result = await controller.getProducts(paginationDto);
+
+      expect(result.meta.page).toBe(2);
+      expect(result.meta.hasNextPage).toBe(true);
+      expect(result.meta.hasPreviousPage).toBe(true);
+      expect(mockProductsService.getProducts).toHaveBeenCalledWith(paginationDto);
+    });
+  });
+
+  describe('createProduct', () => {
+    it('should create a new product successfully', async () => {
+      const createProductDto: ProductDto = {
+        userId: 1,
+        categoryId: 1,
+        subCategoryId: 1,
+        productCategoryId: 1,
+        name: 'New Product',
+        description: 'Product description',
+        price: 19.99,
+        rating: 0,
+        images: ['product.jpg'],
+        attributes: { size: 'medium' },
+        stockQuantity: 50,
+        sku: 'PRD001',
+        isActive: true,
+        isFeatured: false,
+        viewCount: 0,
+        salesCount: 0,
+      };
+
+      const createdProduct = {
+        id: 1,
+        ...createProductDto,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      mockProductsService.createProduct.mockResolvedValue(createdProduct);
+
+      const result = await controller.createProduct(createProductDto);
+
+      expect(result).toEqual(createdProduct);
+      expect(mockProductsService.createProduct).toHaveBeenCalledWith(createProductDto);
+      expect(mockProductsService.createProduct).toHaveBeenCalledTimes(1);
+    });
+
+    it('should throw HttpException on service error', async () => {
+      const createProductDto: ProductDto = {
+        userId: 1,
+        categoryId: 1,
+        subCategoryId: 1,
+        productCategoryId: 1,
+        name: 'Product',
+        description: 'Description',
+        price: 10,
+      };
+
+      const errorMessage = 'Validation failed';
+      mockProductsService.createProduct.mockRejectedValue(new Error(errorMessage));
+
+      await expect(controller.createProduct(createProductDto)).rejects.toThrow(
+        new HttpException(errorMessage, HttpStatus.BAD_REQUEST)
+      );
+      expect(mockProductsService.createProduct).toHaveBeenCalledWith(createProductDto);
+    });
+
+    it('should handle database constraint errors', async () => {
+      const createProductDto: ProductDto = {
+        userId: 999,
+        categoryId: 999,
+        subCategoryId: 999,
+        productCategoryId: 999,
+        name: 'Product',
+        description: 'Description',
+        price: 10,
+      };
+
+      const errorMessage = 'Foreign key constraint violation';
+      mockProductsService.createProduct.mockRejectedValue(new Error(errorMessage));
+
+      await expect(controller.createProduct(createProductDto)).rejects.toThrow(
+        new HttpException(errorMessage, HttpStatus.BAD_REQUEST)
+      );
+    });
+
+    it('should create product with minimal fields', async () => {
+      const createProductDto: ProductDto = {
+        userId: 1,
+        categoryId: 1,
+        subCategoryId: 1,
+        productCategoryId: 1,
+        name: 'Minimal Product',
+        description: 'Description',
+        price: 9.99,
+      };
+
+      const createdProduct = {
+        id: 1,
+        ...createProductDto,
+        rating: 0,
+        images: [],
+        attributes: null,
+        stockQuantity: 0,
+        sku: null,
+        isActive: true,
+        isFeatured: false,
+        viewCount: 0,
+        salesCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      mockProductsService.createProduct.mockResolvedValue(createdProduct);
+
+      const result = await controller.createProduct(createProductDto);
+
+      expect(result.id).toBe(1);
+      expect(result.name).toBe('Minimal Product');
+      expect(result.sku).toBeNull();
+    });
+
+    it('should create featured product', async () => {
+      const createProductDto: ProductDto = {
+        userId: 1,
+        categoryId: 1,
+        subCategoryId: 1,
+        productCategoryId: 1,
+        name: 'Featured Product',
+        description: 'This is featured',
+        price: 99.99,
+        isFeatured: true,
+        rating: 5,
+        stockQuantity: 200,
+      };
+
+      const createdProduct = {
+        id: 1,
+        ...createProductDto,
+        images: [],
+        attributes: null,
+        sku: null,
+        isActive: true,
+        viewCount: 0,
+        salesCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      mockProductsService.createProduct.mockResolvedValue(createdProduct);
+
+      const result = await controller.createProduct(createProductDto);
+
+      expect(result.isFeatured).toBe(true);
+      expect(result.rating).toBe(5);
+    });
+
+    it('should handle validation errors with proper status code', async () => {
+      const invalidDto: ProductDto = {
+        userId: null,
+        categoryId: null,
+        subCategoryId: null,
+        productCategoryId: null,
+        name: '',
+        description: '',
+        price: -10,
+      };
+
+      mockProductsService.createProduct.mockRejectedValue(new Error('Validation error'));
+
+      try {
+        await controller.createProduct(invalidDto);
+      } catch (error) {
+        expect(error).toBeInstanceOf(HttpException);
+        expect(error.getStatus()).toBe(HttpStatus.BAD_REQUEST);
+        expect(error.message).toBe('Validation error');
+      }
+    });
+  });
+
+  describe('Error handling', () => {
+    it('should wrap service errors in HttpException', async () => {
+      const dto: ProductDto = {
+        userId: 1,
+        categoryId: 1,
+        subCategoryId: 1,
+        productCategoryId: 1,
+        name: 'Test',
+        description: 'Test',
+        price: 10,
+      };
+
+      const error = new Error('Service error');
+      mockProductsService.createProduct.mockRejectedValue(error);
+
+      await expect(controller.createProduct(dto)).rejects.toThrow(HttpException);
+    });
+
+    it('should preserve error message in HttpException', async () => {
+      const dto: ProductDto = {
+        userId: 1,
+        categoryId: 1,
+        subCategoryId: 1,
+        productCategoryId: 1,
+        name: 'Test',
+        description: 'Test',
+        price: 10,
+      };
+
+      const customError = new Error('Custom error message');
+      mockProductsService.createProduct.mockRejectedValue(customError);
+
+      try {
+        await controller.createProduct(dto);
+      } catch (error) {
+        expect(error.message).toBe('Custom error message');
+      }
+    });
+
+    it('should use BAD_REQUEST status for all errors', async () => {
+      const dto: ProductDto = {
+        userId: 1,
+        categoryId: 1,
+        subCategoryId: 1,
+        productCategoryId: 1,
+        name: 'Test',
+        description: 'Test',
+        price: 10,
+      };
+
+      mockProductsService.createProduct.mockRejectedValue(new Error('Any error'));
+
+      try {
+        await controller.createProduct(dto);
+      } catch (error) {
+        expect(error.getStatus()).toBe(HttpStatus.BAD_REQUEST);
+      }
+    });
+  });
+
+  describe('Controller-Service interaction', () => {
+    it('should properly delegate to service for getProducts', async () => {
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        skip: 0,
+      };
+
+      const expectedResult: PaginatedResult<Product> = {
+        data: [],
+        meta: {
+          total: 0,
+          page: 1,
+          limit: 10,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      };
+
+      mockProductsService.getProducts.mockResolvedValue(expectedResult);
+
+      await controller.getProducts(paginationDto);
+      expect(mockProductsService.getProducts).toHaveBeenCalledWith(paginationDto);
+    });
+
+    it('should properly delegate to service for createProduct', async () => {
+      const dto: ProductDto = {
+        userId: 1,
+        categoryId: 1,
+        subCategoryId: 1,
+        productCategoryId: 1,
+        name: 'Test',
+        description: 'Test',
+        price: 10,
+      };
+
+      mockProductsService.createProduct.mockResolvedValue({ id: 1, ...dto });
+
+      await controller.createProduct(dto);
+      expect(mockProductsService.createProduct).toHaveBeenCalledWith(dto);
+    });
+
+    it('should not modify service response for getProducts', async () => {
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        skip: 0,
+      };
+
+      const serviceResponse: PaginatedResult<any> = {
+        data: [{ id: 1, custom: 'field' }],
+        meta: {
+          total: 1,
+          page: 1,
+          limit: 10,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      };
+
+      mockProductsService.getProducts.mockResolvedValue(serviceResponse);
+
+      const result = await controller.getProducts(paginationDto);
+      expect(result).toBe(serviceResponse);
+    });
+
+    it('should not modify service response for createProduct', async () => {
+      const dto: ProductDto = {
+        userId: 1,
+        categoryId: 1,
+        subCategoryId: 1,
+        productCategoryId: 1,
+        name: 'Test',
+        description: 'Test',
+        price: 10,
+      };
+
+      const serviceResponse = { id: 1, custom: 'field', ...dto };
+      mockProductsService.createProduct.mockResolvedValue(serviceResponse);
+
+      const result = await controller.createProduct(dto);
+      expect(result).toBe(serviceResponse);
+    });
+  });
+
+  describe('getProductById', () => {
+    it('should return a product by id', async () => {
+      const product = {
+        id: 1,
+        name: 'Test Product',
+        price: 19.99,
+        userId: 1,
+        categoryId: 1,
+        subCategoryId: 1,
+        productCategoryId: 1,
+        description: 'Test description',
+        rating: 4.5,
+        images: ['image1.jpg'],
+        attributes: { color: 'red' },
+        stockQuantity: 100,
+        sku: 'TEST001',
+        isActive: true,
+        isFeatured: false,
+        viewCount: 10,
+        salesCount: 5,
+        category: { id: 1, name: 'Groceries', slug: 'groceries' },
+        subCategory: { id: 1, name: 'Fruits', slug: 'fruits' },
+        productCategory: { id: 1, name: 'Apples', slug: 'apples' },
+        user: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      mockProductsService.getProductById.mockResolvedValue(product);
+
+      const result = await controller.getProductById(1);
+
+      expect(result).toEqual(product);
+      expect(result.id).toBe(1);
+      expect(mockProductsService.getProductById).toHaveBeenCalledWith(1);
+      expect(mockProductsService.getProductById).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return null when product not found', async () => {
+      mockProductsService.getProductById.mockResolvedValue(null);
+
+      const result = await controller.getProductById(999);
+
+      expect(result).toBeNull();
+      expect(mockProductsService.getProductById).toHaveBeenCalledWith(999);
+    });
+
+    it('should handle service errors', async () => {
+      mockProductsService.getProductById.mockRejectedValue(new Error('Database error'));
+
+      await expect(controller.getProductById(1)).rejects.toThrow('Database error');
+      expect(mockProductsService.getProductById).toHaveBeenCalledWith(1);
+    });
+
+    it('should pass numeric id to service', async () => {
+      const product = { id: 42, name: 'Product 42' };
+      mockProductsService.getProductById.mockResolvedValue(product);
+
+      await controller.getProductById(42);
+
+      expect(mockProductsService.getProductById).toHaveBeenCalledWith(42);
+    });
+
+    it('should return product with all relations', async () => {
+      const productWithRelations = {
+        id: 1,
+        name: 'Product with Relations',
+        category: { id: 1, name: 'Category', slug: 'category' },
+        subCategory: { id: 2, name: 'SubCategory', slug: 'subcategory' },
+        productCategory: { id: 3, name: 'ProductCategory', slug: 'product-category' },
+        user: { id: 1, fullName: 'John Doe' },
+      };
+
+      mockProductsService.getProductById.mockResolvedValue(productWithRelations);
+
+      const result = await controller.getProductById(1);
+
+      expect(result).toHaveProperty('category');
+      expect(result).toHaveProperty('subCategory');
+      expect(result).toHaveProperty('productCategory');
+      expect(result).toHaveProperty('user');
+      expect(result.category.name).toBe('Category');
+    });
+  });
+
+  describe('updateProduct', () => {
+    it('should update a product successfully', async () => {
+      const updateDto = {
+        name: 'Updated Product',
+        price: 29.99,
+        description: 'Updated description',
+      };
+
+      const updatedProduct = {
+        id: 1,
+        ...updateDto,
+        userId: 1,
+        categoryId: 1,
+        subCategoryId: 1,
+        productCategoryId: 1,
+        updatedAt: new Date(),
+      };
+
+      mockProductsService.updateProduct.mockResolvedValue(updatedProduct);
+
+      const result = await controller.updateProduct(1, updateDto);
+
+      expect(result).toEqual(updatedProduct);
+      expect(result.name).toBe('Updated Product');
+      expect(mockProductsService.updateProduct).toHaveBeenCalledWith(1, updateDto);
+      expect(mockProductsService.updateProduct).toHaveBeenCalledTimes(1);
+    });
+
+    it('should handle partial updates', async () => {
+      const updateDto = { price: 19.99 };
+      const updatedProduct = {
+        id: 1,
+        name: 'Existing Product',
+        price: 19.99,
+        description: 'Existing description',
+      };
+
+      mockProductsService.updateProduct.mockResolvedValue(updatedProduct);
+
+      const result = await controller.updateProduct(1, updateDto);
+
+      expect(result.price).toBe(19.99);
+      expect(result.name).toBe('Existing Product');
+      expect(mockProductsService.updateProduct).toHaveBeenCalledWith(1, updateDto);
+    });
+
+    it('should handle update errors', async () => {
+      const updateDto = { name: 'Test' };
+      mockProductsService.updateProduct.mockRejectedValue(new Error('Product not found'));
+
+      await expect(controller.updateProduct(999, updateDto)).rejects.toThrow('Product not found');
+      expect(mockProductsService.updateProduct).toHaveBeenCalledWith(999, updateDto);
+    });
+  });
+
+  describe('deleteProduct', () => {
+    it('should have @Roles(UserType.ADMIN) decorator', () => {
+      const metadata = Reflect.getMetadata('roles', controller.deleteProduct);
+      expect(metadata).toBeDefined();
+      expect(metadata).toEqual([UserType.ADMIN]);
+    });
+
+    it('should require admin role for deletion', () => {
+      const rolesMetadata = Reflect.getMetadata('roles', ProductsController.prototype.deleteProduct);
+      expect(rolesMetadata).toBeDefined();
+      expect(rolesMetadata).toEqual([UserType.ADMIN]);
+    });
+
+    it('should delete a product successfully', async () => {
+      const deleteResult = {
+        raw: [],
+        affected: 1,
+      };
+
+      mockProductsService.deleteProduct.mockResolvedValue(deleteResult);
+
+      const result = await controller.deleteProduct(1);
+
+      expect(result).toEqual(deleteResult);
+      expect(result.affected).toBe(1);
+      expect(mockProductsService.deleteProduct).toHaveBeenCalledWith(1);
+      expect(mockProductsService.deleteProduct).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return affected: 0 when product not found', async () => {
+      const deleteResult = {
+        raw: [],
+        affected: 0,
+      };
+
+      mockProductsService.deleteProduct.mockResolvedValue(deleteResult);
+
+      const result = await controller.deleteProduct(999);
+
+      expect(result.affected).toBe(0);
+      expect(mockProductsService.deleteProduct).toHaveBeenCalledWith(999);
+    });
+
+    it('should handle deletion errors', async () => {
+      mockProductsService.deleteProduct.mockRejectedValue(new Error('Database error'));
+
+      await expect(controller.deleteProduct(1)).rejects.toThrow('Database error');
+      expect(mockProductsService.deleteProduct).toHaveBeenCalledWith(1);
+    });
+
+    it('should handle foreign key constraint errors', async () => {
+      const error = new Error('Cannot delete product with existing references');
+      mockProductsService.deleteProduct.mockRejectedValue(error);
+
+      await expect(controller.deleteProduct(1)).rejects.toThrow('Cannot delete product with existing references');
+    });
+
+    it('should pass numeric id to service', async () => {
+      const deleteResult = { raw: [], affected: 1 };
+      mockProductsService.deleteProduct.mockResolvedValue(deleteResult);
+
+      await controller.deleteProduct(42);
+
+      expect(mockProductsService.deleteProduct).toHaveBeenCalledWith(42);
+    });
+
+    it('should not modify service response', async () => {
+      const serviceResponse: any = {
+        raw: ['some', 'data'],
+        affected: 1,
+        custom: 'field',
+      };
+
+      mockProductsService.deleteProduct.mockResolvedValue(serviceResponse);
+
+      const result = await controller.deleteProduct(1);
+
+      expect(result).toBe(serviceResponse);
+      expect((result as any).custom).toBe('field');
+    });
+
+    it('should be protected by admin role', () => {
+      const guards = Reflect.getMetadata('__guards__', controller.deleteProduct);
+      expect(guards).toBeDefined();
+    });
+  });
+
+  describe('Role-based Access Control', () => {
+    it('should not have role restrictions on getProducts', () => {
+      const metadata = Reflect.getMetadata('roles', controller.getProducts);
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should not have role restrictions on getProductById', () => {
+      const metadata = Reflect.getMetadata('roles', controller.getProductById);
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should not have role restrictions on createProduct', () => {
+      const metadata = Reflect.getMetadata('roles', controller.createProduct);
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should not have role restrictions on updateProduct', () => {
+      const metadata = Reflect.getMetadata('roles', controller.updateProduct);
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should have admin role restriction on deleteProduct', () => {
+      const metadata = Reflect.getMetadata('roles', controller.deleteProduct);
+      expect(metadata).toBeDefined();
+      expect(metadata).toEqual([UserType.ADMIN]);
+    });
+  });
+});

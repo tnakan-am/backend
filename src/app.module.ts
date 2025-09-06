@@ -8,6 +8,11 @@ import { Address } from './addresses/entities/address.entity';
 import { AuthModule } from './auth/auth.module';
 import { EmailModule } from './email/email.module';
 import { ConfigModule } from '@nestjs/config';
+import { Product } from './products/entities/product.entity';
+import { Category } from './categories/entities/category.entity';
+import { SubCategory } from './categories/entities/sub-category.entity';
+import { ProductCategory } from './categories/entities/product-category.entity';
+import { ProductsModule } from './products/products.module';
 
 @Module({
   imports: [
@@ -21,7 +26,7 @@ import { ConfigModule } from '@nestjs/config';
       username: process.env.DB_USERNAME || 'postgres',
       password: process.env.DB_PASSWORD || '852456AA',
       database: process.env.DB_NAME || 'homemade',
-      entities: [Users, Address],
+      entities: [Users, Address, Product, Category, SubCategory, ProductCategory],
       synchronize: process.env.NODE_ENV !== 'production',
       migrationsRun: true,
       migrations: ['dist/migrations/*.js'],
@@ -29,6 +34,7 @@ import { ConfigModule } from '@nestjs/config';
     UserModule,
     AuthModule,
     EmailModule,
+    ProductsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
