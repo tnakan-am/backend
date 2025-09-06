@@ -8,8 +8,9 @@ import { Product } from './entities/product.entity';
 import { Category } from '../categories/entities/category.entity';
 import { SubCategory } from '../categories/entities/sub-category.entity';
 import { ProductCategory } from '../categories/entities/product-category.entity';
-import { Roles } from 'src/auth/roles.decorator';
-import { UserType } from 'src/users/dto/create-user.dto';
+import { Roles } from '../auth/roles.decorator';
+import { UserType } from '../users/dto/create-user.dto';
+import 'reflect-metadata';
 
 
 describe('ProductsController', () => {
@@ -649,6 +650,18 @@ describe('ProductsController', () => {
   });
 
   describe('deleteProduct', () => {
+    it('should have @Roles(UserType.ADMIN) decorator', () => {
+      const metadata = Reflect.getMetadata('roles', controller.deleteProduct);
+      expect(metadata).toBeDefined();
+      expect(metadata).toEqual([UserType.ADMIN]);
+    });
+
+    it('should require admin role for deletion', () => {
+      const rolesMetadata = Reflect.getMetadata('roles', ProductsController.prototype.deleteProduct);
+      expect(rolesMetadata).toBeDefined();
+      expect(rolesMetadata).toEqual([UserType.ADMIN]);
+    });
+
     it('should delete a product successfully', async () => {
       const deleteResult = {
         raw: [],
@@ -715,6 +728,39 @@ describe('ProductsController', () => {
 
       expect(result).toBe(serviceResponse);
       expect((result as any).custom).toBe('field');
+    });
+
+    it('should be protected by admin role', () => {
+      const guards = Reflect.getMetadata('__guards__', controller.deleteProduct);
+      expect(guards).toBeDefined();
+    });
+  });
+
+  describe('Role-based Access Control', () => {
+    it('should not have role restrictions on getProducts', () => {
+      const metadata = Reflect.getMetadata('roles', controller.getProducts);
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should not have role restrictions on getProductById', () => {
+      const metadata = Reflect.getMetadata('roles', controller.getProductById);
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should not have role restrictions on createProduct', () => {
+      const metadata = Reflect.getMetadata('roles', controller.createProduct);
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should not have role restrictions on updateProduct', () => {
+      const metadata = Reflect.getMetadata('roles', controller.updateProduct);
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should have admin role restriction on deleteProduct', () => {
+      const metadata = Reflect.getMetadata('roles', controller.deleteProduct);
+      expect(metadata).toBeDefined();
+      expect(metadata).toEqual([UserType.ADMIN]);
     });
   });
 });
