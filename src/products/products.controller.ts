@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpException, HttpStatus, Post, Query, ValidationPipe } from '@nestjs/common';
+import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Query, ValidationPipe } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import { ProductDto } from './dto/product.dto';
 import { PaginationDto, PaginatedResult } from './dto/pagination.dto';
@@ -14,6 +14,11 @@ export class ProductsController {
     paginationDto: PaginationDto
   ): Promise<PaginatedResult<Product>> {
     return this.productsService.getProducts(paginationDto);
+  }
+
+  @Get(':id')
+  async getProductById(@Param('id') id: number) {
+    return this.productsService.getProductById(id);
   }
 
   @Post()

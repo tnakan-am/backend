@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Product } from './entities/product.entity';
@@ -11,6 +11,21 @@ export class ProductsService {
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
   ) {}
+
+  private getQueryBuilder() {
+    return this.productRepository
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.user', 'user')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.subCategory', 'subCategory')
+      .leftJoinAndSelect('product.productCategory', 'productCategory')
+      .select([
+        'product', // all product columns
+        'category.id', 'category.name', 'category.slug', // only these from category
+        'subCategory.id', 'subCategory.name', 'subCategory.slug', // only these from subCategory
+        'productCategory.id', 'productCategory.name', 'productCategory.slug', // only these from productCategory
+      ]);
+  }
 
   async getProducts(paginationDto: PaginationDto): Promise<PaginatedResult<Product>> {
     const {
@@ -26,17 +41,7 @@ export class ProductsService {
       isFeatured,
     } = paginationDto;
 
-    const queryBuilder = this.productRepository
-      .createQueryBuilder('product')
-      .leftJoinAndSelect('product.category', 'category')
-      .leftJoinAndSelect('product.subCategory', 'subCategory')
-      .leftJoinAndSelect('product.productCategory', 'productCategory')
-      .select([
-        'product', // all product columns
-        'category.id', 'category.name', 'category.slug', // only these from category
-        'subCategory.id', 'subCategory.name', 'subCategory.slug', // only these from subCategory
-        'productCategory.id', 'productCategory.name', 'productCategory.slug', // only these from productCategory
-      ]);
+    const queryBuilder = this.getQueryBuilder();
 
     // Apply filters
     if (isActive !== undefined) {
@@ -106,6 +111,22 @@ export class ProductsService {
   }
 
   async createProduct(createProductDto: ProductDto) {
-    return await this.productRepository.save(createProductDto);
+    try {
+      return await this.productRepository.save(createProductDto);
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  async getProductById(id: number) {
+    try {
+    const queryBuilder = this.getQueryBuilder();
+
+    queryBuilder.andWhere('product.id = :id', { id });
+
+    return await queryBuilder.getOne();
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+    }
   }
 }
