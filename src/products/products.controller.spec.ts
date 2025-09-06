@@ -3,6 +3,7 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
 import { ProductDto } from './dto/product.dto';
+import { PaginationDto, PaginatedResult } from './dto/pagination.dto';
 import { Product } from './entities/product.entity';
 import { Category } from '../categories/entities/category.entity';
 import { SubCategory } from '../categories/entities/sub-category.entity';
@@ -41,7 +42,7 @@ describe('ProductsController', () => {
   });
 
   describe('getProducts', () => {
-    it('should return an array of products', async () => {
+    it('should return paginated products', async () => {
       const category = new Category();
       category.id = 1;
       category.name = 'Groceries';
@@ -54,7 +55,7 @@ describe('ProductsController', () => {
       productCategory.id = 1;
       productCategory.name = 'Apples';
 
-      const expectedProducts: Product[] = [
+      const products: Product[] = [
         {
           id: 1,
           userId: 1,
@@ -82,42 +83,105 @@ describe('ProductsController', () => {
         },
       ];
 
-      mockProductsService.getProducts.mockResolvedValue(expectedProducts);
+      const expectedResult: PaginatedResult<Product> = {
+        data: products,
+        meta: {
+          total: 1,
+          page: 1,
+          limit: 10,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      };
 
-      const result = await controller.getProducts();
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        skip: 0,
+      };
 
-      expect(result).toEqual(expectedProducts);
-      expect(mockProductsService.getProducts).toHaveBeenCalledTimes(1);
+      mockProductsService.getProducts.mockResolvedValue(expectedResult);
+
+      const result = await controller.getProducts(paginationDto);
+
+      expect(result).toEqual(expectedResult);
+      expect(result.meta.total).toBe(1);
+      expect(mockProductsService.getProducts).toHaveBeenCalledWith(paginationDto);
     });
 
     it('should return empty array when no products exist', async () => {
-      mockProductsService.getProducts.mockResolvedValue([]);
+      const expectedResult: PaginatedResult<Product> = {
+        data: [],
+        meta: {
+          total: 0,
+          page: 1,
+          limit: 10,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      };
 
-      const result = await controller.getProducts();
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        skip: 0,
+      };
 
-      expect(result).toEqual([]);
+      mockProductsService.getProducts.mockResolvedValue(expectedResult);
+
+      const result = await controller.getProducts(paginationDto);
+
+      expect(result.data).toEqual([]);
+      expect(result.meta.total).toBe(0);
       expect(mockProductsService.getProducts).toHaveBeenCalledTimes(1);
     });
 
     it('should handle service errors', async () => {
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        skip: 0,
+      };
+
       mockProductsService.getProducts.mockRejectedValue(new Error('Database error'));
 
-      await expect(controller.getProducts()).rejects.toThrow('Database error');
+      await expect(controller.getProducts(paginationDto)).rejects.toThrow('Database error');
       expect(mockProductsService.getProducts).toHaveBeenCalledTimes(1);
     });
 
-    it('should fetch products without throwing', async () => {
-      const products = [
-        { id: 1, name: 'Product 1' },
-        { id: 2, name: 'Product 2' },
-      ];
+    it('should handle pagination parameters', async () => {
+      const paginationDto: PaginationDto = {
+        page: 2,
+        limit: 20,
+        sortBy: 'price',
+        sortOrder: 'ASC',
+        categoryId: 1,
+        search: 'apple',
+        skip: 20,
+      };
 
-      mockProductsService.getProducts.mockResolvedValue(products);
+      const expectedResult: PaginatedResult<Product> = {
+        data: [],
+        meta: {
+          total: 100,
+          page: 2,
+          limit: 20,
+          totalPages: 5,
+          hasNextPage: true,
+          hasPreviousPage: true,
+        },
+      };
 
-      const result = await controller.getProducts();
+      mockProductsService.getProducts.mockResolvedValue(expectedResult);
 
-      expect(result).toHaveLength(2);
-      expect(result[0].name).toBe('Product 1');
+      const result = await controller.getProducts(paginationDto);
+
+      expect(result.meta.page).toBe(2);
+      expect(result.meta.hasNextPage).toBe(true);
+      expect(result.meta.hasPreviousPage).toBe(true);
+      expect(mockProductsService.getProducts).toHaveBeenCalledWith(paginationDto);
     });
   });
 
@@ -353,8 +417,28 @@ describe('ProductsController', () => {
 
   describe('Controller-Service interaction', () => {
     it('should properly delegate to service for getProducts', async () => {
-      await controller.getProducts();
-      expect(mockProductsService.getProducts).toHaveBeenCalledWith();
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        skip: 0,
+      };
+
+      const expectedResult: PaginatedResult<Product> = {
+        data: [],
+        meta: {
+          total: 0,
+          page: 1,
+          limit: 10,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      };
+
+      mockProductsService.getProducts.mockResolvedValue(expectedResult);
+
+      await controller.getProducts(paginationDto);
+      expect(mockProductsService.getProducts).toHaveBeenCalledWith(paginationDto);
     });
 
     it('should properly delegate to service for createProduct', async () => {
@@ -375,10 +459,27 @@ describe('ProductsController', () => {
     });
 
     it('should not modify service response for getProducts', async () => {
-      const serviceResponse = [{ id: 1, custom: 'field' }];
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        skip: 0,
+      };
+
+      const serviceResponse: PaginatedResult<any> = {
+        data: [{ id: 1, custom: 'field' }],
+        meta: {
+          total: 1,
+          page: 1,
+          limit: 10,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      };
+
       mockProductsService.getProducts.mockResolvedValue(serviceResponse);
 
-      const result = await controller.getProducts();
+      const result = await controller.getProducts(paginationDto);
       expect(result).toBe(serviceResponse);
     });
 

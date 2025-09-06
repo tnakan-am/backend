@@ -1,14 +1,19 @@
-import { Body, Controller, Get, HttpException, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpException, HttpStatus, Post, Query, ValidationPipe } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import { ProductDto } from './dto/product.dto';
+import { PaginationDto, PaginatedResult } from './dto/pagination.dto';
+import { Product } from './entities/product.entity';
 
 @Controller('products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   @Get()
-  async getProducts() {
-    return this.productsService.getProducts();
+  async getProducts(
+    @Query(new ValidationPipe({ transform: true, transformOptions: { enableImplicitConversion: true } })) 
+    paginationDto: PaginationDto
+  ): Promise<PaginatedResult<Product>> {
+    return this.productsService.getProducts(paginationDto);
   }
 
   @Post()

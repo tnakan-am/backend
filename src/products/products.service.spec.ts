@@ -1,9 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProductsService } from './products.service';
-import { Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ProductDto } from './dto/product.dto';
+import { PaginationDto } from './dto/pagination.dto';
 import { Category } from '../categories/entities/category.entity';
 import { SubCategory } from '../categories/entities/sub-category.entity';
 import { ProductCategory } from '../categories/entities/product-category.entity';
@@ -11,6 +12,20 @@ import { ProductCategory } from '../categories/entities/product-category.entity'
 describe('ProductsService', () => {
   let service: ProductsService;
   let repository: Repository<Product>;
+  let queryBuilder: SelectQueryBuilder<Product>;
+
+  const mockQueryBuilder = {
+    createQueryBuilder: jest.fn(),
+    leftJoinAndSelect: jest.fn(),
+    select: jest.fn(),
+    andWhere: jest.fn(),
+    orderBy: jest.fn(),
+    addOrderBy: jest.fn(),
+    skip: jest.fn(),
+    take: jest.fn(),
+    getMany: jest.fn(),
+    getCount: jest.fn(),
+  };
 
   const mockProductRepository = {
     find: jest.fn(),
@@ -20,9 +35,23 @@ describe('ProductsService', () => {
     delete: jest.fn(),
     create: jest.fn(),
     findAndCount: jest.fn(),
+    createQueryBuilder: jest.fn(),
   };
 
   beforeEach(async () => {
+    // Setup query builder chain
+    mockQueryBuilder.leftJoinAndSelect.mockReturnThis();
+    mockQueryBuilder.select.mockReturnThis();
+    mockQueryBuilder.andWhere.mockReturnThis();
+    mockQueryBuilder.orderBy.mockReturnThis();
+    mockQueryBuilder.addOrderBy.mockReturnThis();
+    mockQueryBuilder.skip.mockReturnThis();
+    mockQueryBuilder.take.mockReturnThis();
+    mockQueryBuilder.getMany.mockResolvedValue([]);
+    mockQueryBuilder.getCount.mockResolvedValue(0);
+
+    mockProductRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ProductsService,
@@ -46,7 +75,7 @@ describe('ProductsService', () => {
   });
 
   describe('getProducts', () => {
-    it('should return an array of products with relations', async () => {
+    it('should return paginated products with metadata', async () => {
       const category = new Category();
       category.id = 1;
       category.name = 'Groceries';
@@ -85,85 +114,152 @@ describe('ProductsService', () => {
           createdAt: new Date(),
           updatedAt: new Date(),
         },
-        {
-          id: 2,
-          userId: 1,
-          categoryId: 1,
-          subCategoryId: 1,
-          productCategoryId: 1,
-          name: 'Green Apple',
-          description: 'Fresh green apples',
-          price: 3.49,
-          rating: 4.2,
-          images: ['apple2.jpg'],
-          attributes: { color: 'green' },
-          stockQuantity: 75,
-          sku: 'APL002',
-          isActive: true,
-          isFeatured: true,
-          viewCount: 10,
-          salesCount: 5,
-          category: category,
-          subCategory: subCategory,
-          productCategory: productCategory,
-          user: null,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
       ];
 
-      mockProductRepository.find.mockResolvedValue(expectedProducts);
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        sortBy: 'salesCount',
+        sortOrder: 'DESC',
+        skip: 0,
+      };
 
-      const result = await service.getProducts();
+      mockQueryBuilder.getMany.mockResolvedValue(expectedProducts);
+      mockQueryBuilder.getCount.mockResolvedValue(1);
 
-      expect(result).toEqual(expectedProducts);
-      expect(mockProductRepository.find).toHaveBeenCalledWith({
-        relations: {
-          category: true,
-          subCategory: true,
-          productCategory: true,
-        },
+      const result = await service.getProducts(paginationDto);
+
+      expect(result.data).toEqual(expectedProducts);
+      expect(result.meta).toEqual({
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
       });
-      expect(mockProductRepository.find).toHaveBeenCalledTimes(1);
+      expect(mockProductRepository.createQueryBuilder).toHaveBeenCalledWith('product');
+      expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledTimes(3);
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('product.salesCount', 'DESC');
     });
 
     it('should return empty array when no products exist', async () => {
-      mockProductRepository.find.mockResolvedValue([]);
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        skip: 0,
+      };
 
-      const result = await service.getProducts();
+      mockQueryBuilder.getMany.mockResolvedValue([]);
+      mockQueryBuilder.getCount.mockResolvedValue(0);
 
-      expect(result).toEqual([]);
-      expect(mockProductRepository.find).toHaveBeenCalledWith({
-        relations: {
-          category: true,
-          subCategory: true,
-          productCategory: true,
-        },
-      });
+      const result = await service.getProducts(paginationDto);
+
+      expect(result.data).toEqual([]);
+      expect(result.meta.total).toBe(0);
+      expect(result.meta.totalPages).toBe(0);
+      expect(result.meta.hasNextPage).toBe(false);
     });
 
     it('should handle database errors', async () => {
-      mockProductRepository.find.mockRejectedValue(new Error('Database error'));
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        skip: 0,
+      };
 
-      await expect(service.getProducts()).rejects.toThrow('Database error');
-      expect(mockProductRepository.find).toHaveBeenCalledTimes(1);
+      mockQueryBuilder.getCount.mockRejectedValue(new Error('Database error'));
+
+      await expect(service.getProducts(paginationDto)).rejects.toThrow('Database error');
+      expect(mockProductRepository.createQueryBuilder).toHaveBeenCalledTimes(1);
     });
 
-    it('should fetch products with all relations', async () => {
-      const product = new Product();
-      product.id = 1;
-      product.name = 'Test Product';
-      product.category = new Category();
-      product.subCategory = new SubCategory();
-      product.productCategory = new ProductCategory();
+    it('should apply filters correctly', async () => {
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        categoryId: 1,
+        subCategoryId: 2,
+        productCategoryId: 3,
+        isActive: true,
+        isFeatured: true,
+        search: 'apple',
+        skip: 0,
+      };
 
-      mockProductRepository.find.mockResolvedValue([product]);
+      mockQueryBuilder.getMany.mockResolvedValue([]);
+      mockQueryBuilder.getCount.mockResolvedValue(0);
 
-      const result = await service.getProducts();
+      await service.getProducts(paginationDto);
 
-      expect(result[0].category).toBeDefined();
-      expect(result[0].subCategory).toBeDefined();
-      expect(result[0].productCategory).toBeDefined();
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('product.isActive = :isActive', { isActive: true });
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('product.isFeatured = :isFeatured', { isFeatured: true });
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('product.categoryId = :categoryId', { categoryId: 1 });
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('product.subCategoryId = :subCategoryId', { subCategoryId: 2 });
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('product.productCategoryId = :productCategoryId', { productCategoryId: 3 });
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        '(product.name ILIKE :search OR product.description ILIKE :search OR product.sku ILIKE :search)',
+        { search: '%apple%' }
+      );
+    });
+
+    it('should handle pagination correctly', async () => {
+      const paginationDto: PaginationDto = {
+        page: 3,
+        limit: 20,
+        skip: 40,
+      };
+
+      mockQueryBuilder.getMany.mockResolvedValue([]);
+      mockQueryBuilder.getCount.mockResolvedValue(100);
+
+      const result = await service.getProducts(paginationDto);
+
+      expect(mockQueryBuilder.skip).toHaveBeenCalledWith(40);
+      expect(mockQueryBuilder.take).toHaveBeenCalledWith(20);
+      expect(result.meta).toEqual({
+        total: 100,
+        page: 3,
+        limit: 20,
+        totalPages: 5,
+        hasNextPage: true,
+        hasPreviousPage: true,
+      });
+    });
+
+    it('should handle different sort options', async () => {
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        sortBy: 'price',
+        sortOrder: 'ASC',
+        skip: 0,
+      };
+
+      mockQueryBuilder.getMany.mockResolvedValue([]);
+      mockQueryBuilder.getCount.mockResolvedValue(0);
+
+      await service.getProducts(paginationDto);
+
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('product.price', 'ASC');
+      expect(mockQueryBuilder.addOrderBy).toHaveBeenCalledWith('product.createdAt', 'DESC');
+    });
+
+    it('should use default sort when invalid field provided', async () => {
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        sortBy: 'invalidField',
+        sortOrder: 'DESC',
+        skip: 0,
+      };
+
+      mockQueryBuilder.getMany.mockResolvedValue([]);
+      mockQueryBuilder.getCount.mockResolvedValue(0);
+
+      await service.getProducts(paginationDto);
+
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('product.salesCount', 'DESC');
     });
   });
 
@@ -374,16 +470,22 @@ describe('ProductsService', () => {
   });
 
   describe('Repository interaction', () => {
-    it('should use repository find method correctly', async () => {
-      await service.getProducts();
+    it('should use repository createQueryBuilder method correctly', async () => {
+      const paginationDto: PaginationDto = {
+        page: 1,
+        limit: 10,
+        skip: 0,
+      };
 
-      expect(mockProductRepository.find).toHaveBeenCalledWith({
-        relations: {
-          category: true,
-          subCategory: true,
-          productCategory: true,
-        },
-      });
+      mockQueryBuilder.getMany.mockResolvedValue([]);
+      mockQueryBuilder.getCount.mockResolvedValue(0);
+
+      await service.getProducts(paginationDto);
+
+      expect(mockProductRepository.createQueryBuilder).toHaveBeenCalledWith('product');
+      expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('product.category', 'category');
+      expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('product.subCategory', 'subCategory');
+      expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('product.productCategory', 'productCategory');
     });
 
     it('should use repository save method correctly', async () => {

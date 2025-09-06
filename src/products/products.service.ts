@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { ProductDto } from './dto/product.dto';
+import { PaginationDto, PaginatedResult } from './dto/pagination.dto';
 
 @Injectable()
 export class ProductsService {
@@ -11,14 +12,97 @@ export class ProductsService {
     private readonly productRepository: Repository<Product>,
   ) {}
 
-  async getProducts() {
-    return await this.productRepository.find({
-        relations: {
-            category: true,
-            subCategory: true,
-            productCategory: true,
-        },
-    });
+  async getProducts(paginationDto: PaginationDto): Promise<PaginatedResult<Product>> {
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = 'salesCount',
+      sortOrder = 'DESC',
+      search,
+      categoryId,
+      subCategoryId,
+      productCategoryId,
+      isActive = true,
+      isFeatured,
+    } = paginationDto;
+
+    const queryBuilder = this.productRepository
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.subCategory', 'subCategory')
+      .leftJoinAndSelect('product.productCategory', 'productCategory')
+      .select([
+        'product', // all product columns
+        'category.id', 'category.name', 'category.slug', // only these from category
+        'subCategory.id', 'subCategory.name', 'subCategory.slug', // only these from subCategory
+        'productCategory.id', 'productCategory.name', 'productCategory.slug', // only these from productCategory
+      ]);
+
+    // Apply filters
+    if (isActive !== undefined) {
+      queryBuilder.andWhere('product.isActive = :isActive', { isActive });
+    }
+
+    if (isFeatured !== undefined) {
+      queryBuilder.andWhere('product.isFeatured = :isFeatured', { isFeatured });
+    }
+
+    if (categoryId) {
+      queryBuilder.andWhere('product.categoryId = :categoryId', { categoryId });
+    }
+
+    if (subCategoryId) {
+      queryBuilder.andWhere('product.subCategoryId = :subCategoryId', { subCategoryId });
+    }
+
+    if (productCategoryId) {
+      queryBuilder.andWhere('product.productCategoryId = :productCategoryId', { productCategoryId });
+    }
+
+    // Search functionality
+    if (search) {
+      queryBuilder.andWhere(
+        '(product.name ILIKE :search OR product.description ILIKE :search OR product.sku ILIKE :search)',
+        { search: `%${search}%` }
+      );
+    }
+
+    // Dynamic sorting
+    const allowedSortFields = ['salesCount', 'rating', 'viewCount', 'price', 'createdAt', 'name', 'stockQuantity'];
+    const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'salesCount';
+    queryBuilder.orderBy(`product.${sortField}`, sortOrder);
+    
+    // Add secondary sorting for consistency
+    if (sortField !== 'createdAt') {
+      queryBuilder.addOrderBy('product.createdAt', 'DESC');
+    }
+
+    // Get total count before pagination
+    const total = await queryBuilder.getCount();
+
+    // Apply pagination
+    const skip = (page - 1) * limit;
+    queryBuilder.skip(skip).take(limit);
+
+    // Execute query
+    const data = await queryBuilder.getMany();
+
+    // Calculate metadata
+    const totalPages = Math.ceil(total / limit);
+    const hasNextPage = page < totalPages;
+    const hasPreviousPage = page > 1;
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage,
+        hasPreviousPage,
+      },
+    };
   }
 
   async createProduct(createProductDto: ProductDto) {
