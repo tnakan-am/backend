@@ -8,6 +8,9 @@ import { Product } from './entities/product.entity';
 import { Category } from '../categories/entities/category.entity';
 import { SubCategory } from '../categories/entities/sub-category.entity';
 import { ProductCategory } from '../categories/entities/product-category.entity';
+import { UserType } from '../users/dto/create-user.dto';
+import 'reflect-metadata';
+
 
 describe('ProductsController', () => {
   let controller: ProductsController;
@@ -17,6 +20,8 @@ describe('ProductsController', () => {
     getProducts: jest.fn(),
     createProduct: jest.fn(),
     getProductById: jest.fn(),
+    updateProduct: jest.fn(),
+    deleteProduct: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -585,6 +590,177 @@ describe('ProductsController', () => {
       expect(result).toHaveProperty('productCategory');
       expect(result).toHaveProperty('user');
       expect(result.category.name).toBe('Category');
+    });
+  });
+
+  describe('updateProduct', () => {
+    it('should update a product successfully', async () => {
+      const updateDto = {
+        name: 'Updated Product',
+        price: 29.99,
+        description: 'Updated description',
+      };
+
+      const updatedProduct = {
+        id: 1,
+        ...updateDto,
+        userId: 1,
+        categoryId: 1,
+        subCategoryId: 1,
+        productCategoryId: 1,
+        updatedAt: new Date(),
+      };
+
+      mockProductsService.updateProduct.mockResolvedValue(updatedProduct);
+
+      const result = await controller.updateProduct(1, updateDto);
+
+      expect(result).toEqual(updatedProduct);
+      expect(result.name).toBe('Updated Product');
+      expect(mockProductsService.updateProduct).toHaveBeenCalledWith(1, updateDto);
+      expect(mockProductsService.updateProduct).toHaveBeenCalledTimes(1);
+    });
+
+    it('should handle partial updates', async () => {
+      const updateDto = { price: 19.99 };
+      const updatedProduct = {
+        id: 1,
+        name: 'Existing Product',
+        price: 19.99,
+        description: 'Existing description',
+      };
+
+      mockProductsService.updateProduct.mockResolvedValue(updatedProduct);
+
+      const result = await controller.updateProduct(1, updateDto);
+
+      expect(result.price).toBe(19.99);
+      expect(result.name).toBe('Existing Product');
+      expect(mockProductsService.updateProduct).toHaveBeenCalledWith(1, updateDto);
+    });
+
+    it('should handle update errors', async () => {
+      const updateDto = { name: 'Test' };
+      mockProductsService.updateProduct.mockRejectedValue(new Error('Product not found'));
+
+      await expect(controller.updateProduct(999, updateDto)).rejects.toThrow('Product not found');
+      expect(mockProductsService.updateProduct).toHaveBeenCalledWith(999, updateDto);
+    });
+  });
+
+  describe('deleteProduct', () => {
+    it('should have @Roles(UserType.ADMIN) decorator', () => {
+      const deleteProductMetadata = Reflect.getMetadata('roles', controller.deleteProduct);
+      expect(deleteProductMetadata).toBeDefined();
+      expect(deleteProductMetadata).toContain('admin');
+    });
+
+    it('should require admin role for deletion', () => {
+      // This tests that the @Roles decorator is applied
+      const rolesMetadata = Reflect.getMetadata('roles', ProductsController.prototype.deleteProduct);
+      expect(rolesMetadata).toEqual(['admin']);
+    });
+    it('should delete a product successfully', async () => {
+      const deleteResult = {
+        raw: [],
+        affected: 1,
+      };
+
+      mockProductsService.deleteProduct.mockResolvedValue(deleteResult);
+
+      const result = await controller.deleteProduct(1);
+
+      expect(result).toEqual(deleteResult);
+      expect(result.affected).toBe(1);
+      expect(mockProductsService.deleteProduct).toHaveBeenCalledWith(1);
+      expect(mockProductsService.deleteProduct).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return affected: 0 when product not found', async () => {
+      const deleteResult = {
+        raw: [],
+        affected: 0,
+      };
+
+      mockProductsService.deleteProduct.mockResolvedValue(deleteResult);
+
+      const result = await controller.deleteProduct(999);
+
+      expect(result.affected).toBe(0);
+      expect(mockProductsService.deleteProduct).toHaveBeenCalledWith(999);
+    });
+
+    it('should handle deletion errors', async () => {
+      mockProductsService.deleteProduct.mockRejectedValue(new Error('Database error'));
+
+      await expect(controller.deleteProduct(1)).rejects.toThrow('Database error');
+      expect(mockProductsService.deleteProduct).toHaveBeenCalledWith(1);
+    });
+
+    it('should handle foreign key constraint errors', async () => {
+      const error = new Error('Cannot delete product with existing references');
+      mockProductsService.deleteProduct.mockRejectedValue(error);
+
+      await expect(controller.deleteProduct(1)).rejects.toThrow('Cannot delete product with existing references');
+    });
+
+    it('should pass numeric id to service', async () => {
+      const deleteResult = { raw: [], affected: 1 };
+      mockProductsService.deleteProduct.mockResolvedValue(deleteResult);
+
+      await controller.deleteProduct(42);
+
+      expect(mockProductsService.deleteProduct).toHaveBeenCalledWith(42);
+    });
+
+    it('should not modify service response', async () => {
+      const serviceResponse: any = {
+        raw: ['some', 'data'],
+        affected: 1,
+        custom: 'field',
+      };
+
+      mockProductsService.deleteProduct.mockResolvedValue(serviceResponse);
+
+      const result = await controller.deleteProduct(1);
+
+      expect(result).toBe(serviceResponse);
+      expect((result as any).custom).toBe('field');
+    });
+
+    it('should be protected by admin role', () => {
+      // Verify the decorator is applied to the delete method
+      const metadata = Reflect.getMetadata('roles', ProductsController.prototype.deleteProduct);
+      expect(metadata).toBeDefined();
+      expect(metadata).toContain('admin');
+    });
+  });
+
+  describe('Role-based Access Control', () => {
+    it('should not have role restrictions on getProducts', () => {
+      const metadata = Reflect.getMetadata('roles', ProductsController.prototype.getProducts);
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should not have role restrictions on getProductById', () => {
+      const metadata = Reflect.getMetadata('roles', ProductsController.prototype.getProductById);
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should not have role restrictions on createProduct', () => {
+      const metadata = Reflect.getMetadata('roles', ProductsController.prototype.createProduct);
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should not have role restrictions on updateProduct', () => {
+      const metadata = Reflect.getMetadata('roles', ProductsController.prototype.updateProduct);
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should have admin role restriction on deleteProduct', () => {
+      const metadata = Reflect.getMetadata('roles', ProductsController.prototype.deleteProduct);
+      expect(metadata).toBeDefined();
+      expect(metadata).toEqual(['admin']);
     });
   });
 });

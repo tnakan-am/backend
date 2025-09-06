@@ -32,11 +32,13 @@ describe('ProductsService', () => {
     find: jest.fn(),
     save: jest.fn(),
     findOne: jest.fn(),
+    findOneBy: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
     create: jest.fn(),
     findAndCount: jest.fn(),
     createQueryBuilder: jest.fn(),
+    merge: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -585,6 +587,157 @@ describe('ProductsService', () => {
       expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('product.category', 'category');
       expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('product.subCategory', 'subCategory');
       expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('product.productCategory', 'productCategory');
+    });
+  });
+
+  describe('updateProduct', () => {
+    it('should update a product successfully', async () => {
+      const existingProduct = {
+        id: 1,
+        name: 'Old Product',
+        price: 10.99,
+        description: 'Old description',
+      };
+
+      const updateDto = {
+        name: 'Updated Product',
+        price: 15.99,
+        description: 'Updated description',
+      };
+
+      const mergedProduct = {
+        ...existingProduct,
+        ...updateDto,
+      };
+
+      const updatedProduct = {
+        ...mergedProduct,
+        updatedAt: new Date(),
+      };
+
+      mockProductRepository.findOneBy.mockResolvedValue(existingProduct);
+      mockProductRepository.merge.mockReturnValue(mergedProduct);
+      mockProductRepository.save.mockResolvedValue(updatedProduct);
+
+      const result = await service.updateProduct(1, updateDto);
+
+      expect(result).toEqual(updatedProduct);
+      expect(mockProductRepository.findOneBy).toHaveBeenCalledWith({ id: 1 });
+      expect(mockProductRepository.merge).toHaveBeenCalledWith(existingProduct, updateDto);
+      expect(mockProductRepository.save).toHaveBeenCalledWith(mergedProduct);
+    });
+
+    it('should throw error when product not found', async () => {
+      mockProductRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.updateProduct(999, { name: 'Test' })).rejects.toThrow('Product not found');
+      expect(mockProductRepository.findOneBy).toHaveBeenCalledWith({ id: 999 });
+      expect(mockProductRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('should handle database errors during update', async () => {
+      const existingProduct = { id: 1, name: 'Product' };
+      mockProductRepository.findOneBy.mockResolvedValue(existingProduct);
+      mockProductRepository.merge.mockReturnValue(existingProduct);
+      mockProductRepository.save.mockRejectedValue(new Error('Database error'));
+
+      await expect(service.updateProduct(1, { name: 'Updated' })).rejects.toThrow('Database error');
+    });
+
+    it('should update partial fields', async () => {
+      const existingProduct = {
+        id: 1,
+        name: 'Product',
+        price: 10.99,
+        description: 'Description',
+        isActive: true,
+      };
+
+      const updateDto = {
+        price: 20.99,
+      };
+
+      const mergedProduct = {
+        ...existingProduct,
+        price: 20.99,
+      };
+
+      mockProductRepository.findOneBy.mockResolvedValue(existingProduct);
+      mockProductRepository.merge.mockReturnValue(mergedProduct);
+      mockProductRepository.save.mockResolvedValue(mergedProduct);
+
+      const result = await service.updateProduct(1, updateDto);
+
+      expect(result.price).toBe(20.99);
+      expect(result.name).toBe('Product');
+      expect(result.description).toBe('Description');
+    });
+  });
+
+  describe('deleteProduct', () => {
+    it('should delete a product successfully', async () => {
+      const deleteResult = {
+        raw: [],
+        affected: 1,
+      };
+
+      mockProductRepository.delete.mockResolvedValue(deleteResult);
+
+      const result = await service.deleteProduct(1);
+
+      expect(result).toEqual(deleteResult);
+      expect(result.affected).toBe(1);
+      expect(mockProductRepository.delete).toHaveBeenCalledWith(1);
+      expect(mockProductRepository.delete).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return affected: 0 when product not found', async () => {
+      const deleteResult = {
+        raw: [],
+        affected: 0,
+      };
+
+      mockProductRepository.delete.mockResolvedValue(deleteResult);
+
+      const result = await service.deleteProduct(999);
+
+      expect(result.affected).toBe(0);
+      expect(mockProductRepository.delete).toHaveBeenCalledWith(999);
+    });
+
+    it('should handle database errors during deletion', async () => {
+      mockProductRepository.delete.mockRejectedValue(new Error('Database error'));
+
+      await expect(service.deleteProduct(1)).rejects.toThrow('Database error');
+      expect(mockProductRepository.delete).toHaveBeenCalledWith(1);
+    });
+
+    it('should handle foreign key constraint errors', async () => {
+      const error = new Error('Cannot delete product with existing orders');
+      mockProductRepository.delete.mockRejectedValue(error);
+
+      await expect(service.deleteProduct(1)).rejects.toThrow('Cannot delete product with existing orders');
+    });
+
+    it('should delete multiple products by passing different ids', async () => {
+      const deleteResult = {
+        raw: [],
+        affected: 1,
+      };
+
+      mockProductRepository.delete.mockResolvedValue(deleteResult);
+
+      const result1 = await service.deleteProduct(1);
+      const result2 = await service.deleteProduct(2);
+      const result3 = await service.deleteProduct(3);
+
+      expect(result1.affected).toBe(1);
+      expect(result2.affected).toBe(1);
+      expect(result3.affected).toBe(1);
+      expect(mockProductRepository.delete).toHaveBeenCalledTimes(3);
+      expect(mockProductRepository.delete).toHaveBeenNthCalledWith(1, 1);
+      expect(mockProductRepository.delete).toHaveBeenNthCalledWith(2, 2);
+      expect(mockProductRepository.delete).toHaveBeenNthCalledWith(3, 3);
     });
   });
 });

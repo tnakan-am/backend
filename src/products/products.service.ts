@@ -167,4 +167,12 @@ export class ProductsService {
       throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
     }
   }
+
+  async deleteProduct(id: number) {
+    try {
+      return await this.productRepository.delete(id);
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+    }
+  }
 }
