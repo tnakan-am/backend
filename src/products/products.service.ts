@@ -1,6 +1,6 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { ProductDto } from './dto/product.dto';
 import { PaginationDto, PaginatedResult } from './dto/pagination.dto';
@@ -12,7 +12,7 @@ export class ProductsService {
     private readonly productRepository: Repository<Product>,
   ) {}
 
-  private getQueryBuilder() {
+  private getQueryBuilder(): SelectQueryBuilder<Product> {
     return this.productRepository
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.user', 'user')
