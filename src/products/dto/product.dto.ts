@@ -1,67 +1,74 @@
-import { IsNotEmpty, IsString, IsNumber, IsBoolean, IsOptional, IsArray, IsObject } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+} from 'class-validator';
+import { DeliveryOption, Unit } from '../entities/product.entity';
 
 export class ProductDto {
-  @IsNumber()
-  @IsNotEmpty()
-  userId: number;
-
-  @IsNumber()
-  @IsNotEmpty()
-  categoryId: number;
-
-  @IsNumber()
-  @IsNotEmpty()
-  subCategoryId: number;
-
-  @IsNumber()
-  @IsNotEmpty()
-  productCategoryId: number;
-
   @IsString()
   @IsNotEmpty()
   name: string;
+
+  @IsEnum(Unit)
+  unit: Unit;
+
+  @IsNumber()
+  @Min(0)
+  minQuantity: number;
+
+  @IsNumber()
+  @Min(0)
+  price: number;
+
+  @IsString()
+  @IsNotEmpty()
+  image: string;
 
   @IsString()
   @IsNotEmpty()
   description: string;
 
-  @IsNumber()
+  @IsString()
   @IsNotEmpty()
-  price: number;
+  category: string;
 
-  @IsNumber()
-  @IsOptional()
-  rating?: number;
-
-  @IsArray()
-  @IsOptional()
-  images?: string[];
-
-  @IsObject()
-  @IsOptional()
-  attributes?: Record<string, any>;
-
-  @IsNumber()
-  @IsOptional()
-  stockQuantity?: number;
+  @IsString()
+  @IsNotEmpty()
+  subCategory: string;
 
   @IsString()
   @IsOptional()
-  sku?: string;
+  productCategory?: string;
 
+  // Either the literal 'unlimited' or a numeric string ("12").
+  @IsString()
+  @IsNotEmpty()
+  availability: string;
+
+  @IsEnum(DeliveryOption)
+  deliveryOption: DeliveryOption;
+
+  // Optional admin override on create; defaults to false otherwise.
   @IsBoolean()
   @IsOptional()
-  isActive?: boolean;
+  approved?: boolean;
 
-  @IsBoolean()
+  // When omitted on POST, the controller fills these from the JWT.
+  @IsUUID()
   @IsOptional()
-  isFeatured?: boolean;
+  userId?: string;
 
-  @IsNumber()
+  @IsString()
   @IsOptional()
-  viewCount?: number;
+  userDisplayName?: string;
 
-  @IsNumber()
+  @IsString()
   @IsOptional()
-  salesCount?: number;
+  userPhoto?: string | null;
 }

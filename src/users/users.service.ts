@@ -4,14 +4,21 @@ import {
   NotFoundException,
   InternalServerErrorException,
   Logger,
+  UnauthorizedException,
+  BadRequestException,
 } from '@nestjs/common';
-import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Users } from './entities/user.entity';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
+import { Users, UserType } from './entities/user.entity';
+import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+
+export type SafeUser = Omit<
+  Users,
+  'password' | 'verificationToken' | 'passwordResetToken' | 'passwordResetExpiresAt'
+>;
 
 @Injectable()
 export class UserService {
@@ -22,151 +29,183 @@ export class UserService {
     private readonly userRepository: Repository<Users>,
   ) {}
 
-  async create(createUserDto: CreateUserDto): Promise<Users> {
+  async create(dto: CreateUserDto): Promise<Users> {
     try {
-      // Check if email already exists
-      const existingUser = await this.userRepository.findOne({
-        where: { email: createUserDto.email },
+      const existing = await this.userRepository.findOne({
+        where: { email: dto.email.toLowerCase() },
       });
-      
-      if (existingUser) {
-        this.logger.warn(
-          `Attempted to create user with duplicate email: ${createUserDto.email}`,
-        );
+      if (existing) {
         throw new HttpException('Email already exists', 409);
       }
 
-      createUserDto.password = await this.hashPassword(createUserDto.password);
-      const verificationToken = this.generateVerificationToken();
+      const password = await this.hashPassword(dto.password);
+      const verificationToken = this.generateToken();
 
-      const userData = this.userRepository.create({
-        ...createUserDto,
+      const entity = this.userRepository.create({
+        ...dto,
+        email: dto.email.toLowerCase(),
+        password,
         verificationToken,
         verified: false,
+        isTopSeller: dto.isTopSeller ?? false,
       });
 
-      return await this.userRepository.save(userData);
+      return await this.userRepository.save(entity);
     } catch (error) {
-      // Re-throw HttpException (like our duplicate email check)
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      
-      if (error.code === '23505') {
-        // Unique violation error code in PostgreSQL
-        this.logger.warn(
-          `Attempted to create user with duplicate email: ${createUserDto.email}`,
-        );
+      if (error instanceof HttpException) throw error;
+      if ((error as { code?: string }).code === '23505') {
         throw new HttpException('Email already exists', 409);
       }
-      this.logger.error(
-        `Failed to create user: ${createUserDto.email}`,
-        error instanceof Error ? error.stack : error,
-      );
+      this.logger.error(`Failed to create user: ${dto.email}`, error as Error);
       throw new InternalServerErrorException('Error creating user');
     }
   }
 
-  async findOne(id: number): Promise<Users> {
-    const userData = await this.userRepository.findOne({
-      where: { id },
-      relations: ['addresses'],
-    });
-    if (!userData) {
-      throw new NotFoundException('User Not Found');
-    }
-    return userData;
+  findRaw(id: string): Promise<Users | null> {
+    return this.userRepository.findOne({ where: { id } });
   }
 
-  async update(id: number, updateUserDto: UpdateUserDto): Promise<Users> {
-    try {
-      const existingUser = await this.findOne(id);
-
-      if (updateUserDto.password) {
-        updateUserDto.password = await this.hashPassword(
-          updateUserDto.password,
-        );
-      }
-
-      const userData = this.userRepository.merge(existingUser, updateUserDto);
-      return await this.userRepository.save(userData);
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      this.logger.error(
-        `Failed to update user with id: ${id}`,
-        error instanceof Error ? error.stack : error,
-      );
-      throw new InternalServerErrorException('Error updating user');
-    }
-  }
-
-  async remove(id: number): Promise<Users> {
-    try {
-      const existingUser = await this.findOne(id);
-      return await this.userRepository.remove(existingUser);
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      this.logger.error(
-        `Failed to remove user with id: ${id}`,
-        error instanceof Error ? error.stack : error,
-      );
-      throw new InternalServerErrorException('Error removing user');
-    }
-  }
-
-  private async hashPassword(password: string): Promise<string> {
-    return bcrypt.hash(password, 10);
-  }
-
-  async findUser(email: string): Promise<Users> {
-    const user = await this.userRepository.findOne({ where: { email } });
-    if (!user) {
-      throw new NotFoundException(`User with email ${email} not found`);
-    }
+  async findById(id: string): Promise<Users> {
+    const user = await this.userRepository.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('User not found');
     return user;
+  }
+
+  async findByEmail(email: string): Promise<Users> {
+    const user = await this.userRepository.findOne({
+      where: { email: email.toLowerCase() },
+    });
+    if (!user) throw new NotFoundException(`User with email ${email} not found`);
+    return user;
+  }
+
+  async findBusinesses(): Promise<SafeUser[]> {
+    const users = await this.userRepository.find({
+      where: { type: UserType.BUSINESS },
+    });
+    return users.map((u) => this.toSafeUser(u));
+  }
+
+  async findAll(): Promise<SafeUser[]> {
+    const users = await this.userRepository.find();
+    return users.map((u) => this.toSafeUser(u));
+  }
+
+  async update(id: string, dto: UpdateUserDto): Promise<SafeUser> {
+    const user = await this.findById(id);
+    const merged = this.userRepository.merge(user, dto);
+    const saved = await this.userRepository.save(merged);
+    return this.toSafeUser(saved);
+  }
+
+  async changePassword(
+    id: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.findById(id);
+    const ok = await bcrypt.compare(currentPassword, user.password);
+    if (!ok) throw new UnauthorizedException('Current password is incorrect');
+    user.password = await this.hashPassword(newPassword);
+    await this.userRepository.save(user);
+  }
+
+  async changeEmail(
+    id: string,
+    currentPassword: string,
+    newEmail: string,
+  ): Promise<SafeUser> {
+    const user = await this.findById(id);
+    const ok = await bcrypt.compare(currentPassword, user.password);
+    if (!ok) throw new UnauthorizedException('Current password is incorrect');
+
+    const lowered = newEmail.toLowerCase();
+    const existing = await this.userRepository.findOne({
+      where: { email: lowered },
+    });
+    if (existing && existing.id !== id) {
+      throw new HttpException('Email already in use', 409);
+    }
+
+    user.email = lowered;
+    user.verified = false;
+    user.verifiedAt = null;
+    user.verificationToken = this.generateToken();
+    const saved = await this.userRepository.save(user);
+    return this.toSafeUser(saved);
+  }
+
+  async remove(id: string): Promise<void> {
+    const user = await this.findById(id);
+    await this.userRepository.remove(user);
   }
 
   async verifyEmail(token: string): Promise<Users> {
     const user = await this.userRepository.findOne({
       where: { verificationToken: token },
     });
-
-    if (!user) {
-      this.logger.warn(`Invalid verification token attempted: ${token}`);
-      throw new NotFoundException('Invalid verification token');
-    }
-
+    if (!user) throw new NotFoundException('Invalid verification token');
     if (user.verified) {
-      this.logger.warn(
-        `Attempted to verify already verified email: ${user.email}`,
-      );
-      throw new HttpException('Email already verified', 400);
+      throw new BadRequestException('Email already verified');
     }
-
     user.verified = true;
     user.verifiedAt = new Date();
     user.verificationToken = null;
-
-    return await this.userRepository.save(user);
+    return this.userRepository.save(user);
   }
 
-  async findByVerificationToken(token: string): Promise<Users> {
-    const user = await this.userRepository.findOne({
-      where: { verificationToken: token },
-    });
-
-    if (!user) {
-      throw new NotFoundException('Invalid verification token');
+  async issueVerificationToken(email: string): Promise<Users> {
+    const user = await this.findByEmail(email);
+    if (user.verified) {
+      throw new BadRequestException('Email already verified');
     }
-
-    return user;
+    user.verificationToken = this.generateToken();
+    return this.userRepository.save(user);
   }
 
-  private generateVerificationToken(): string {
+  async issuePasswordResetToken(email: string): Promise<Users | null> {
+    const user = await this.userRepository.findOne({
+      where: { email: email.toLowerCase() },
+    });
+    if (!user) return null;
+    user.passwordResetToken = this.generateToken();
+    user.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    return this.userRepository.save(user);
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<void> {
+    const user = await this.userRepository.findOne({
+      where: { passwordResetToken: token },
+    });
+    if (!user) throw new NotFoundException('Invalid reset token');
+    if (
+      !user.passwordResetExpiresAt ||
+      user.passwordResetExpiresAt.getTime() < Date.now()
+    ) {
+      throw new BadRequestException('Reset token has expired');
+    }
+    user.password = await this.hashPassword(newPassword);
+    user.passwordResetToken = null;
+    user.passwordResetExpiresAt = null;
+    await this.userRepository.save(user);
+  }
+
+  toSafeUser(user: Users): SafeUser {
+    const {
+      password: _p,
+      verificationToken: _v,
+      passwordResetToken: _r,
+      passwordResetExpiresAt: _e,
+      ...rest
+    } = user;
+    return rest as SafeUser;
+  }
+
+  private hashPassword(password: string): Promise<string> {
+    return bcrypt.hash(password, 10);
+  }
+
+  private generateToken(): string {
     return crypto.randomBytes(32).toString('hex');
   }
 }

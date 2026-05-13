@@ -1,28 +1,20 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
   Column,
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
-  Index,
 } from 'typeorm';
 import { SubCategory } from './sub-category.entity';
-import { Product } from '../../products/entities/product.entity';
 
 @Entity('categories')
-@Index(['name'], { unique: true })
-@Index(['slug'], { unique: true })
-@Index(['isActive'])
 export class Category {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryColumn({ length: 100 })
+  id: string;
 
   @Column({ length: 100 })
   name: string;
-
-  @Column({ length: 100 })
-  slug: string;
 
   @Column({ type: 'text', nullable: true })
   description: string;
@@ -41,9 +33,6 @@ export class Category {
 
   @OneToMany(() => SubCategory, (subCategory) => subCategory.category)
   subCategories: SubCategory[];
-
-  @OneToMany(() => Product, (product) => product.category)
-  products: Product[];
 
   @CreateDateColumn()
   createdAt: Date;

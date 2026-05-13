@@ -6,10 +6,11 @@ import {
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { jwtConstants } from './constants';
 import { Request } from 'express';
 import { Reflector } from '@nestjs/core';
+import { jwtConstants } from './constants';
 import { IS_PUBLIC_KEY } from './public.decorator';
+import { JwtPayload } from './jwt-payload.interface';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -21,7 +22,6 @@ export class AuthGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    // Check if route is marked as public
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
@@ -30,32 +30,29 @@ export class AuthGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest();
-    const token = this.extractTokenFromHeader(request);
+    const request = context.switchToHttp().getRequest<Request>();
+    const token = extractBearerToken(request.headers.authorization);
     if (!token) {
-      this.logger.warn(
-        `Unauthorized access attempt - no token provided: ${request.url}`,
-      );
+      this.logger.warn(`Unauthorized — no token: ${request.url}`);
       throw new UnauthorizedException();
     }
     try {
-      const payload = await this.jwtService.verifyAsync(token, {
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
         secret: jwtConstants.secret,
       });
-      // 💡 We're assigning the payload to the request object here
-      // so that we can access it in our route handlers
-      request['user'] = payload;
+      (request as any).user = payload;
     } catch {
-      this.logger.warn(
-        `Unauthorized access attempt - invalid token: ${request.url}`,
-      );
+      this.logger.warn(`Unauthorized — invalid token: ${request.url}`);
       throw new UnauthorizedException();
     }
     return true;
   }
+}
 
-  private extractTokenFromHeader(request: Request): string | undefined {
-    const [type, token] = request.headers.authorization?.split(' ') ?? [];
-    return type === 'Bearer' ? token : undefined;
-  }
+export function extractBearerToken(
+  authorization: string | undefined,
+): string | undefined {
+  if (!authorization) return undefined;
+  const [type, token] = authorization.split(' ');
+  return type === 'Bearer' ? token : undefined;
 }

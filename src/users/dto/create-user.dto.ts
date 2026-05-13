@@ -5,28 +5,19 @@ import {
   MinLength,
   IsEnum,
   IsOptional,
-  IsPhoneNumber,
+  IsBoolean,
+  ValidateNested,
 } from 'class-validator';
-import { CreateAddressDto } from '../../addresses/dto/create-address.dto';
+import { Type } from 'class-transformer';
+import { UserType } from '../entities/user.entity';
+import { AddressDto } from './address.dto';
 
-export enum UserType {
-  CUSTOMER = 'customer',
-  BUSINESS = 'business',
-  ADMIN = 'admin',
-}
+export { UserType };
 
 export class CreateUserDto {
-  @IsString()
-  @IsNotEmpty()
-  fullName: string;
-
   @IsEmail()
   @IsNotEmpty()
   email: string;
-
-  @IsString()
-  @IsOptional()
-  hvhh?: string;
 
   @IsString()
   @MinLength(8)
@@ -35,13 +26,42 @@ export class CreateUserDto {
 
   @IsString()
   @IsNotEmpty()
-  @IsPhoneNumber('AM')
-  phone: string;
+  displayName: string;
+
+  @IsString()
+  @IsOptional()
+  phoneNumber?: string;
 
   @IsEnum(UserType)
   @IsNotEmpty()
   type: UserType;
 
+  @IsString()
   @IsOptional()
-  address?: CreateAddressDto;
+  name?: string;
+
+  @IsString()
+  @IsOptional()
+  surname?: string;
+
+  @IsString()
+  @IsOptional()
+  company?: string;
+
+  @IsString()
+  @IsOptional()
+  hvhh?: string;
+
+  @IsString()
+  @IsOptional()
+  image?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isTopSeller?: boolean;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AddressDto)
+  address?: AddressDto;
 }

@@ -1,118 +1,115 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
   Column,
-  ManyToOne,
-  JoinColumn,
-  UpdateDateColumn,
+  PrimaryGeneratedColumn,
   CreateDateColumn,
+  UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { Users } from '../../users/entities/user.entity';
-import { Category } from '../../categories/entities/category.entity';
-import { SubCategory } from '../../categories/entities/sub-category.entity';
-import { ProductCategory } from '../../categories/entities/product-category.entity';
+
+export enum Unit {
+  kg = 'kg',
+  gram = 'gram',
+  liter = 'liter',
+  quantity = 'qnt',
+}
+
+export enum DeliveryOption {
+  nearest = 'Nearest',
+  nextDay = 'Next Day',
+  afterNextDay = 'After Next Day',
+  weekEnd = 'On WeekEnd',
+}
 
 @Entity('products')
 @Index(['userId'])
-@Index(['categoryId'])
-@Index(['subCategoryId'])
-@Index(['productCategoryId'])
-@Index(['price'])
-@Index(['isActive'])
+@Index(['category'])
+@Index(['subCategory'])
+@Index(['productCategory'])
+@Index(['approved'])
+@Index(['avgReview'])
 @Index(['createdAt'])
-@Index(['name'])
-@Index(['categoryId', 'subCategoryId', 'productCategoryId']) // Composite index for category filtering
 export class Product {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'uuid' })
+  userId: string;
 
   @Column()
-  userId: number;
+  userDisplayName: string;
 
-  @ManyToOne(() => Users, (user) => user.products)
-  @JoinColumn({ name: 'userId' })
-  user: Users;
-
-  @Column()
-  categoryId: number;
-
-  @ManyToOne(() => Category, {
-    onDelete: 'RESTRICT',
-  })
-  @JoinColumn({ name: 'categoryId' })
-  category: Category;
-
-  @Column()
-  subCategoryId: number;
-
-  @ManyToOne(() => SubCategory, {
-    onDelete: 'RESTRICT',
-  })
-  @JoinColumn({ name: 'subCategoryId' })
-  subCategory: SubCategory;
-
-  @Column()
-  productCategoryId: number;
-
-  @ManyToOne(() => ProductCategory, (productCategory) => productCategory.products, {
-    onDelete: 'RESTRICT',
-  })
-  @JoinColumn({ name: 'productCategoryId' })
-  productCategory: ProductCategory;
+  @Column({ type: 'varchar', nullable: true })
+  userPhoto: string | null;
 
   @Column({ length: 255 })
   name: string;
 
-  @Column({ type: 'text' })
-  description: string;
+  @Column({ type: 'enum', enum: Unit })
+  unit: Unit;
 
-  @Column({ 
-    type: 'decimal', 
-    precision: 10, 
+  @Column({
+    type: 'numeric',
+    precision: 12,
+    scale: 3,
+    default: 0,
+    transformer: {
+      to: (v: number) => v,
+      from: (v: string) => parseFloat(v),
+    },
+  })
+  minQuantity: number;
+
+  @Column({
+    type: 'numeric',
+    precision: 12,
     scale: 2,
     transformer: {
-      to: (value: number) => value,
-      from: (value: string) => parseFloat(value)
-    }
+      to: (v: number) => v,
+      from: (v: string) => parseFloat(v),
+    },
   })
   price: number;
 
-  @Column({ 
-    type: 'decimal', 
-    precision: 3, 
-    scale: 2, 
+  @Column()
+  image: string;
+
+  @Column({ type: 'text' })
+  description: string;
+
+  @Column({
+    type: 'numeric',
+    precision: 3,
+    scale: 2,
     default: 0,
     transformer: {
-      to: (value: number) => value,
-      from: (value: string) => parseFloat(value)
-    }
+      to: (v: number) => v,
+      from: (v: string) => parseFloat(v),
+    },
   })
-  rating: number;
-
-  @Column({ type: 'json', nullable: true })
-  images: string[];
-
-  @Column({ type: 'json', nullable: true })
-  attributes: Record<string, any>;
+  avgReview: number;
 
   @Column({ default: 0 })
-  stockQuantity: number;
+  numberReview: number;
 
-  @Column({ length: 50, nullable: true })
-  sku: string;
+  @Column({ length: 100 })
+  category: string;
 
-  @Column({ default: true })
-  isActive: boolean;
+  @Column({ length: 120 })
+  subCategory: string;
+
+  @Column({ type: 'varchar', length: 140, nullable: true })
+  productCategory: string | null;
+
+  // Either a stringified number ("12") or the literal 'unlimited'.
+  @Column({ length: 32, default: 'unlimited' })
+  availability: string;
+
+  @Column({ type: 'enum', enum: DeliveryOption })
+  deliveryOption: DeliveryOption;
 
   @Column({ default: false })
-  isFeatured: boolean;
-
-  @Column({ default: 0 })
-  viewCount: number;
-
-  @Column({ default: 0 })
-  salesCount: number;
+  approved: boolean;
 
   @CreateDateColumn()
   createdAt: Date;
