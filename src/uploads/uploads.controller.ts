@@ -35,11 +35,7 @@ export class UploadsController {
       storage: diskStorage({
         destination: (req, _file, cb) => {
           const user = (req as any).user as JwtPayload | undefined;
-          const dir = join(
-            process.cwd(),
-            uploadsDir,
-            user?.sub ?? 'anonymous',
-          );
+          const dir = join(process.cwd(), uploadsDir, user?.sub ?? 'anonymous');
           ensureDir(dir);
           cb(null, dir);
         },

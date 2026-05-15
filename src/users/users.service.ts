@@ -17,7 +17,10 @@ import { UpdateUserDto } from './dto/update-user.dto';
 
 export type SafeUser = Omit<
   Users,
-  'password' | 'verificationToken' | 'passwordResetToken' | 'passwordResetExpiresAt'
+  | 'password'
+  | 'verificationToken'
+  | 'passwordResetToken'
+  | 'passwordResetExpiresAt'
 >;
 
 @Injectable()
@@ -75,7 +78,8 @@ export class UserService {
     const user = await this.userRepository.findOne({
       where: { email: email.toLowerCase() },
     });
-    if (!user) throw new NotFoundException(`User with email ${email} not found`);
+    if (!user)
+      throw new NotFoundException(`User with email ${email} not found`);
     return user;
   }
 

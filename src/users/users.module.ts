@@ -9,10 +9,7 @@ import { AuthGuard } from '../auth/auth.guard';
 @Module({
   imports: [TypeOrmModule.forFeature([Users])],
   controllers: [UserController],
-  providers: [
-    UserService,
-    { provide: APP_GUARD, useClass: AuthGuard },
-  ],
+  providers: [UserService, { provide: APP_GUARD, useClass: AuthGuard }],
   exports: [UserService],
 })
 export class UserModule {}

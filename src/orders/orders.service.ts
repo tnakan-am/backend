@@ -5,12 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  Between,
-  DataSource,
-  In,
-  Repository,
-} from 'typeorm';
+import { Between, DataSource, In, Repository } from 'typeorm';
 import { Order, OrderStatus } from './entities/order.entity';
 import { OrderProduct } from './entities/order-product.entity';
 import { OrderStatusHistory } from './entities/order-status-history.entity';

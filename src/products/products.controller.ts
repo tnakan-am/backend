@@ -63,10 +63,7 @@ export class ProductsController {
   @Patch(':id/approve')
   @UseGuards(RolesGuard)
   @Roles(UserType.ADMIN)
-  approve(
-    @Param('id') id: string,
-    @Body('approved') approved: boolean,
-  ) {
+  approve(@Param('id') id: string, @Body('approved') approved: boolean) {
     return this.productsService.approve(id, approved !== false);
   }
 

@@ -1,0 +1,50 @@
+name: Deploy (staging)
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://homemade-staging.fly.dev
+    permissions:
+      contents: read
+      packages: read
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      IMAGE: ghcr.io/${{ github.repository }}:sha-${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to Fly (homemade-staging)
+        run: |
+          flyctl deploy \
+            --config fly.staging.toml \
+            --app homemade-staging \
+            --image "$IMAGE" \
+            --remote-only \
+            --wait-timeout 600
+
+      - name: Smoke test /health
+        run: |
+          for i in {1..20}; do
+            if curl -fsS https://homemade-staging.fly.dev/health; then
+              echo " - staging healthy"; exit 0
+            fi
+            sleep 5
+          done
+          echo "Smoke test failed"; exit 1

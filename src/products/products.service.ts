@@ -27,9 +27,7 @@ export class ProductsService {
     private readonly productRepository: Repository<Product>,
   ) {}
 
-  async getProducts(
-    dto: PaginationDto,
-  ): Promise<PaginatedResult<Product>> {
+  async getProducts(dto: PaginationDto): Promise<PaginatedResult<Product>> {
     const {
       page = 1,
       limit = 20,
@@ -56,10 +54,9 @@ export class ProductsService {
     if (productCategory)
       qb.andWhere('p.productCategory = :productCategory', { productCategory });
     if (search) {
-      qb.andWhere(
-        '(p.name ILIKE :search OR p.description ILIKE :search)',
-        { search: `%${search}%` },
-      );
+      qb.andWhere('(p.name ILIKE :search OR p.description ILIKE :search)', {
+        search: `%${search}%`,
+      });
     }
 
     const sortField = ALLOWED_SORT_FIELDS.has(sortBy) ? sortBy : 'createdAt';
