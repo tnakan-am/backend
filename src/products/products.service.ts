@@ -1,10 +1,24 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { ProductDto } from './dto/product.dto';
-import { PaginationDto, PaginatedResult } from './dto/pagination.dto';
+import { PaginatedResult, PaginationDto } from './dto/pagination.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+
+const ALLOWED_SORT_FIELDS = new Set([
+  'createdAt',
+  'updatedAt',
+  'price',
+  'avgReview',
+  'numberReview',
+  'name',
+]);
 
 @Injectable()
 export class ProductsService {
@@ -13,113 +27,50 @@ export class ProductsService {
     private readonly productRepository: Repository<Product>,
   ) {}
 
-  private getQueryBuilder(): SelectQueryBuilder<Product> {
-    return this.productRepository
-      .createQueryBuilder('product')
-      .leftJoinAndSelect('product.user', 'user')
-      .leftJoinAndSelect('product.category', 'category')
-      .leftJoinAndSelect('product.subCategory', 'subCategory')
-      .leftJoinAndSelect('product.productCategory', 'productCategory')
-      .select([
-        'product', // all product columns
-        'category.id',
-        'category.name',
-        'category.slug', // only these from category
-        'subCategory.id',
-        'subCategory.name',
-        'subCategory.slug', // only these from subCategory
-        'productCategory.id',
-        'productCategory.name',
-        'productCategory.slug', // only these from productCategory
-      ]);
-  }
-
   async getProducts(
-    paginationDto: PaginationDto,
+    dto: PaginationDto,
   ): Promise<PaginatedResult<Product>> {
     const {
       page = 1,
-      limit = 10,
-      sortBy = 'salesCount',
+      limit = 20,
+      sortBy = 'createdAt',
       sortOrder = 'DESC',
       search,
-      categoryId,
-      subCategoryId,
-      productCategoryId,
-      isActive = true,
-      isFeatured,
-    } = paginationDto;
+      category,
+      subCategory,
+      productCategory,
+      userId,
+      approved,
+    } = dto;
 
-    const queryBuilder = this.getQueryBuilder();
+    const qb: SelectQueryBuilder<Product> =
+      this.productRepository.createQueryBuilder('p');
 
-    // Apply filters
-    if (isActive !== undefined) {
-      queryBuilder.andWhere('product.isActive = :isActive', { isActive });
+    if (approved !== undefined) {
+      qb.andWhere('p.approved = :approved', { approved: approved === 'true' });
     }
-
-    if (isFeatured !== undefined) {
-      queryBuilder.andWhere('product.isFeatured = :isFeatured', { isFeatured });
-    }
-
-    if (categoryId) {
-      queryBuilder.andWhere('product.categoryId = :categoryId', { categoryId });
-    }
-
-    if (subCategoryId) {
-      queryBuilder.andWhere('product.subCategoryId = :subCategoryId', {
-        subCategoryId,
-      });
-    }
-
-    if (productCategoryId) {
-      queryBuilder.andWhere('product.productCategoryId = :productCategoryId', {
-        productCategoryId,
-      });
-    }
-
-    // Search functionality
+    if (userId) qb.andWhere('p.userId = :userId', { userId });
+    if (category) qb.andWhere('p.category = :category', { category });
+    if (subCategory)
+      qb.andWhere('p.subCategory = :subCategory', { subCategory });
+    if (productCategory)
+      qb.andWhere('p.productCategory = :productCategory', { productCategory });
     if (search) {
-      queryBuilder.andWhere(
-        '(product.name ILIKE :search OR product.description ILIKE :search OR product.sku ILIKE :search)',
+      qb.andWhere(
+        '(p.name ILIKE :search OR p.description ILIKE :search)',
         { search: `%${search}%` },
       );
     }
 
-    // Dynamic sorting
-    const allowedSortFields = [
-      'salesCount',
-      'rating',
-      'viewCount',
-      'price',
-      'createdAt',
-      'name',
-      'stockQuantity',
-    ];
-    const sortField = allowedSortFields.includes(sortBy)
-      ? sortBy
-      : 'salesCount';
-    queryBuilder.orderBy(`product.${sortField}`, sortOrder);
+    const sortField = ALLOWED_SORT_FIELDS.has(sortBy) ? sortBy : 'createdAt';
+    qb.orderBy(`p.${sortField}`, sortOrder === 'ASC' ? 'ASC' : 'DESC');
+    if (sortField !== 'createdAt') qb.addOrderBy('p.createdAt', 'DESC');
 
-    // Add secondary sorting for consistency
-    if (sortField !== 'createdAt') {
-      queryBuilder.addOrderBy('product.createdAt', 'DESC');
-    }
+    const total = await qb.getCount();
+    qb.skip((page - 1) * limit).take(limit);
+    const data = await qb.getMany();
 
-    // Get total count before pagination
-    const total = await queryBuilder.getCount();
-
-    // Apply pagination
-    const skip = (page - 1) * limit;
-    queryBuilder.skip(skip).take(limit);
-
-    // Execute query
-    const data = await queryBuilder.getMany();
-
-    // Calculate metadata
-    const totalPages = Math.ceil(total / limit);
-    const hasNextPage = page < totalPages;
-    const hasPreviousPage = page > 1;
-
+    const totalPages = Math.ceil(total / limit) || 1;
     return {
       data,
       meta: {
@@ -127,52 +78,80 @@ export class ProductsService {
         page,
         limit,
         totalPages,
-        hasNextPage,
-        hasPreviousPage,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
       },
     };
   }
 
-  async createProduct(createProductDto: ProductDto) {
-    try {
-      return await this.productRepository.save(createProductDto);
-    } catch (error) {
-      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
-    }
+  async getTopProducts(limit = 10): Promise<Product[]> {
+    return this.productRepository
+      .createQueryBuilder('p')
+      .where('p.approved = true')
+      .orderBy('p.avgReview', 'DESC')
+      .addOrderBy('p.numberReview', 'DESC')
+      .take(limit)
+      .getMany();
   }
 
-  async getProductById(id: number) {
-    try {
-      const queryBuilder = this.getQueryBuilder();
-
-      queryBuilder.andWhere('product.id = :id', { id });
-
-      return await queryBuilder.getOne();
-    } catch (error) {
-      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
-    }
+  async getById(id: string): Promise<Product> {
+    const product = await this.productRepository.findOne({ where: { id } });
+    if (!product) throw new NotFoundException('Product not found');
+    return product;
   }
 
-  async updateProduct(id: number, updateProductDto: UpdateProductDto) {
-    try {
-      const existing = await this.productRepository.findOneBy({ id });
-      if (!existing) {
-        throw new HttpException('Product not found', HttpStatus.NOT_FOUND);
-      }
-
-      const data = this.productRepository.merge(existing, updateProductDto);
-
-      return await this.productRepository.save(data);
-    } catch (error) {
-      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
-    }
+  async create(dto: ProductDto): Promise<Product> {
+    const entity = this.productRepository.create({
+      ...dto,
+      approved: dto.approved ?? false,
+    });
+    return this.productRepository.save(entity);
   }
 
-  async deleteProduct(id: number) {
-    try {
-      return await this.productRepository.delete(id);
-    } catch (error) {
-      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+  async update(id: string, dto: UpdateProductDto): Promise<Product> {
+    const existing = await this.getById(id);
+    const merged = this.productRepository.merge(existing, dto);
+    return this.productRepository.save(merged);
+  }
+
+  async delete(id: string): Promise<{ success: true }> {
+    const result = await this.productRepository.delete(id);
+    if (!result.affected) {
+      throw new HttpException('Product not found', HttpStatus.NOT_FOUND);
     }
+    return { success: true };
+  }
+
+  async approve(id: string, approved: boolean): Promise<Product> {
+    const product = await this.getById(id);
+    product.approved = approved;
+    return this.productRepository.save(product);
+  }
+
+  async setAvailability(id: string, availability: string): Promise<Product> {
+    const product = await this.getById(id);
+    product.availability = availability;
+    return this.productRepository.save(product);
+  }
+
+  async batchUpdateByUserId(
+    userId: string,
+    patch: Partial<Product>,
+  ): Promise<{ updated: number }> {
+    const result = await this.productRepository.update({ userId }, patch);
+    return { updated: result.affected || 0 };
+  }
+
+  async recomputeReviewAggregates(productId: string): Promise<void> {
+    const row = await this.productRepository.manager.query(
+      `SELECT COALESCE(AVG(stars), 0)::numeric(3,2) AS avg, COUNT(*)::int AS cnt
+         FROM reviews WHERE "productId" = $1`,
+      [productId],
+    );
+    const { avg, cnt } = row[0] || { avg: 0, cnt: 0 };
+    await this.productRepository.update(
+      { id: productId },
+      { avgReview: Number(avg), numberReview: Number(cnt) },
+    );
   }
 }

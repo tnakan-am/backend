@@ -3,6 +3,9 @@
 /node_modules
 /build
 
+# user-uploaded files (served at /uploads at runtime)
+/uploads
+
 # Logs
 logs
 *.log

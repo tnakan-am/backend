@@ -1,50 +1,49 @@
-import { IsOptional, IsPositive, Min, Max } from 'class-validator';
+import { IsBooleanString, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class PaginationDto {
   @IsOptional()
   @Type(() => Number)
-  @IsPositive()
   @Min(1)
   page?: number = 1;
 
   @IsOptional()
   @Type(() => Number)
-  @IsPositive()
   @Min(1)
   @Max(100)
-  limit?: number = 10;
+  limit?: number = 20;
 
   @IsOptional()
-  sortBy?: string = 'salesCount';
+  @IsString()
+  sortBy?: string = 'createdAt';
 
   @IsOptional()
+  @IsString()
   sortOrder?: 'ASC' | 'DESC' = 'DESC';
 
   @IsOptional()
+  @IsString()
   search?: string;
 
   @IsOptional()
-  @Type(() => Number)
-  categoryId?: number;
+  @IsString()
+  category?: string;
 
   @IsOptional()
-  @Type(() => Number)
-  subCategoryId?: number;
+  @IsString()
+  subCategory?: string;
 
   @IsOptional()
-  @Type(() => Number)
-  productCategoryId?: number;
+  @IsString()
+  productCategory?: string;
 
   @IsOptional()
-  isActive?: boolean = true;
+  @IsString()
+  userId?: string;
 
   @IsOptional()
-  isFeatured?: boolean;
-
-  get skip(): number {
-    return (this.page - 1) * this.limit;
-  }
+  @IsBooleanString()
+  approved?: string;
 }
 
 export interface PaginatedResult<T> {

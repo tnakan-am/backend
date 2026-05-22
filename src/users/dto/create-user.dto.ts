@@ -3,30 +3,28 @@ import {
   IsEmail,
   IsNotEmpty,
   MinLength,
-  IsEnum,
+  IsIn,
   IsOptional,
-  IsPhoneNumber,
+  IsBoolean,
+  ValidateNested,
 } from 'class-validator';
-import { CreateAddressDto } from '../../addresses/dto/create-address.dto';
+import { Type } from 'class-transformer';
+import { UserType } from '../entities/user.entity';
+import { AddressDto } from './address.dto';
 
-export enum UserType {
-  CUSTOMER = 'customer',
-  BUSINESS = 'business',
-  ADMIN = 'admin',
-}
+export { UserType };
+
+// Public self-registration may only create customer or business accounts.
+// Admins are provisioned out-of-band, never through the @Public() register route.
+export const SELF_REGISTRABLE_TYPES = [
+  UserType.CUSTOMER,
+  UserType.BUSINESS,
+] as const;
 
 export class CreateUserDto {
-  @IsString()
-  @IsNotEmpty()
-  fullName: string;
-
   @IsEmail()
   @IsNotEmpty()
   email: string;
-
-  @IsString()
-  @IsOptional()
-  hvhh?: string;
 
   @IsString()
   @MinLength(8)
@@ -35,13 +33,42 @@ export class CreateUserDto {
 
   @IsString()
   @IsNotEmpty()
-  @IsPhoneNumber('AM')
-  phone: string;
+  displayName: string;
 
-  @IsEnum(UserType)
+  @IsString()
+  @IsOptional()
+  phoneNumber?: string;
+
+  @IsIn(SELF_REGISTRABLE_TYPES as readonly UserType[])
   @IsNotEmpty()
   type: UserType;
 
+  @IsString()
   @IsOptional()
-  address?: CreateAddressDto;
+  name?: string;
+
+  @IsString()
+  @IsOptional()
+  surname?: string;
+
+  @IsString()
+  @IsOptional()
+  company?: string;
+
+  @IsString()
+  @IsOptional()
+  hvhh?: string;
+
+  @IsString()
+  @IsOptional()
+  image?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isTopSeller?: boolean;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AddressDto)
+  address?: AddressDto;
 }

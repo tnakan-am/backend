@@ -1,79 +1,98 @@
 import {
   Controller,
   Get,
-  Post,
-  Body,
   Patch,
   Param,
+  Body,
   Delete,
+  UseGuards,
   HttpException,
   HttpStatus,
-  UseGuards,
+  Post,
 } from '@nestjs/common';
 import { UserService } from './users.service';
-import { CreateUserDto, UserType } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
-@Controller('users') //route group
+import { CurrentUser } from '../auth/current-user.decorator';
+import { JwtPayload } from '../auth/jwt-payload.interface';
+import { UserType } from './entities/user.entity';
+import { ChangeEmailDto, ChangePasswordDto } from '../auth/sign-in.dto';
+
+@Controller('users')
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
-  @Post()
-  async create(@Body() createUserDto: CreateUserDto) {
-    try {
-      await this.userService.create(createUserDto);
+  @Get('me')
+  async me(@CurrentUser() user: JwtPayload) {
+    const found = await this.userService.findById(user.sub);
+    return this.userService.toSafeUser(found);
+  }
 
-      return {
-        success: true,
-        message: 'User Created Successfully',
-      };
-    } catch (error) {
-      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
-    }
+  @Patch('me')
+  async updateMe(@CurrentUser() user: JwtPayload, @Body() dto: UpdateUserDto) {
+    return this.userService.update(user.sub, dto);
+  }
+
+  @Post('me/password')
+  async changeMyPassword(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    await this.userService.changePassword(
+      user.sub,
+      dto.currentPassword,
+      dto.newPassword,
+    );
+    return { success: true };
+  }
+
+  @Post('me/email')
+  async changeMyEmail(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: ChangeEmailDto,
+  ) {
+    return this.userService.changeEmail(
+      user.sub,
+      dto.currentPassword,
+      dto.newEmail,
+    );
+  }
+
+  @Get('businesses')
+  async listBusinesses() {
+    return this.userService.findBusinesses();
+  }
+
+  @Get()
+  @UseGuards(RolesGuard)
+  @Roles(UserType.ADMIN)
+  async findAll() {
+    return this.userService.findAll();
   }
 
   @Get(':id')
-  @UseGuards(RolesGuard)
-  @Roles(UserType.ADMIN)
   async findOne(@Param('id') id: string) {
     try {
-      const data = await this.userService.findOne(+id);
-      if (data.password) {
-        data.password = undefined;
-      }
-
-      return data;
+      const user = await this.userService.findById(id);
+      return this.userService.toSafeUser(user);
     } catch (error) {
-      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+      throw new HttpException((error as Error).message, HttpStatus.BAD_REQUEST);
     }
   }
 
   @Patch(':id')
-  async update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
-    try {
-      await this.userService.update(+id, updateUserDto);
-      return {
-        success: true,
-        message: 'User Updated Successfully',
-      };
-    } catch (error) {
-      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
-    }
+  @UseGuards(RolesGuard)
+  @Roles(UserType.ADMIN)
+  async update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
+    return this.userService.update(id, dto);
   }
 
   @Delete(':id')
   @UseGuards(RolesGuard)
   @Roles(UserType.ADMIN)
   async remove(@Param('id') id: string) {
-    try {
-      await this.userService.remove(+id);
-      return {
-        success: true,
-        message: 'User Deleted Successfully',
-      };
-    } catch (error) {
-      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
-    }
+    await this.userService.remove(id);
+    return { success: true };
   }
 }

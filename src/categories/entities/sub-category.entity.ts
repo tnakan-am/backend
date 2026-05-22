@@ -1,6 +1,6 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
   Column,
   CreateDateColumn,
   UpdateDateColumn,
@@ -11,19 +11,15 @@ import {
 } from 'typeorm';
 import { Category } from './category.entity';
 import { ProductCategory } from './product-category.entity';
-import { Product } from '../../products/entities/product.entity';
 
 @Entity('sub_categories')
-@Index(['categoryId', 'name'], { unique: true })
-@Index(['categoryId', 'slug'], { unique: true })
 @Index(['categoryId'])
-@Index(['isActive'])
 export class SubCategory {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryColumn({ length: 120 })
+  id: string;
 
-  @Column()
-  categoryId: number;
+  @Column({ length: 100 })
+  categoryId: string;
 
   @ManyToOne(() => Category, (category) => category.subCategories, {
     onDelete: 'CASCADE',
@@ -33,9 +29,6 @@ export class SubCategory {
 
   @Column({ length: 100 })
   name: string;
-
-  @Column({ length: 100 })
-  slug: string;
 
   @Column({ type: 'text', nullable: true })
   description: string;
@@ -49,11 +42,11 @@ export class SubCategory {
   @Column({ default: 0 })
   sortOrder: number;
 
-  @OneToMany(() => ProductCategory, (productCategory) => productCategory.subCategory)
+  @OneToMany(
+    () => ProductCategory,
+    (productCategory) => productCategory.subCategory,
+  )
   productCategories: ProductCategory[];
-
-  @OneToMany(() => Product, (product) => product.subCategory)
-  products: Product[];
 
   @CreateDateColumn()
   createdAt: Date;

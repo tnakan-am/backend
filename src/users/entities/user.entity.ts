@@ -4,21 +4,30 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
-  OneToMany,
+  Index,
 } from 'typeorm';
-import { Address } from '../../addresses/entities/address.entity';
-import { Product } from '../../products/entities/product.entity';
 
-@Entity()
+export enum UserType {
+  CUSTOMER = 'customer',
+  BUSINESS = 'business',
+  ADMIN = 'admin',
+}
+
+export interface UserAddress {
+  street?: string;
+  city?: string;
+  region?: string;
+  zip?: string;
+  country?: string;
+  house?: string;
+}
+
+@Entity('users')
+@Index(['email'], { unique: true })
+@Index(['type'])
 export class Users {
-  @PrimaryGeneratedColumn()
-  id: number;
-
-  @Column()
-  fullName: string;
-
-  @Column({ nullable: true, unique: true })
-  hvhh: string;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ unique: true })
   email: string;
@@ -26,33 +35,58 @@ export class Users {
   @Column()
   password: string;
 
-  @Column({
-    type: 'enum',
-    enum: ['customer', 'business', 'admin'],
-  })
-  type: string;
+  @Column()
+  displayName: string;
 
   @Column({ nullable: true })
-  phone: string;
+  phoneNumber: string;
+
+  @Column({
+    type: 'enum',
+    enum: UserType,
+    default: UserType.CUSTOMER,
+  })
+  type: UserType;
+
+  @Column({ nullable: true })
+  name: string;
+
+  @Column({ nullable: true })
+  surname: string;
+
+  @Column({ nullable: true })
+  company: string;
+
+  @Column({ nullable: true })
+  hvhh: string;
+
+  @Column({ nullable: true })
+  image: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  address: UserAddress | null;
+
+  @Column({ default: false })
+  isTopSeller: boolean;
 
   @Column({ default: false })
   verified: boolean;
 
-  @Column({ nullable: true })
-  verificationToken: string;
+  @Column({ type: 'varchar', nullable: true })
+  verificationToken: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  verifiedAt: Date;
+  verifiedAt: Date | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  passwordResetToken: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  passwordResetExpiresAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;
 
   @UpdateDateColumn()
   updatedAt: Date;
-
-  @OneToMany(() => Address, (address) => address.user)
-  addresses: Address[];
-
-  @OneToMany(() => Product, (product) => product.user)
-  products: Product[];
 }
