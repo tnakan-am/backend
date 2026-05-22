@@ -19,9 +19,10 @@ env:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
           cache: 'npm'
@@ -33,9 +34,10 @@ jobs:
 
   typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
           cache: 'npm'
@@ -44,23 +46,63 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
           cache: 'npm'
       - run: npm ci
       - run: npm test -- --coverage --passWithNoTests
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: unit-coverage
           path: coverage/
           if-no-files-found: ignore
 
+  # Validates that the migration prod relies on applies cleanly to a fresh DB.
+  migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:14-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: homemade_mig
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: homemade_mig
+      DB_SSL: 'false'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+      - name: Run migrations against a fresh database
+        run: node ./node_modules/typeorm/cli.js migration:run -d dist/data-source.js
+      - name: Re-run migrations (must be a no-op — catches non-idempotent migrations)
+        run: node ./node_modules/typeorm/cli.js migration:run -d dist/data-source.js
+
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:14-alpine
@@ -76,6 +118,8 @@ jobs:
           --health-timeout=5s
           --health-retries=5
     env:
+      # NODE_ENV=test => migrationsRun is on, so the app builds its schema from
+      # the same migration prod uses (not entity synchronize).
       NODE_ENV: test
       PORT: 3000
       DB_HOST: localhost
@@ -95,42 +139,45 @@ jobs:
       UPLOADS_DIR: uploads
       UPLOADS_PUBLIC_URL: http://localhost:3000/uploads
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
           cache: 'npm'
       - run: npm ci
       - run: npm run build
-      - name: Bootstrap DB schema for e2e
-        run: node ./node_modules/typeorm/cli.js schema:sync -d dist/data-source.js
       - run: npm run test:e2e
+
+  # Dependency vulnerability gate. Non-blocking today because the repo has a
+  # pre-existing prod-dep backlog (run `npm audit fix`/`--force` to clear).
+  # Remove `continue-on-error` to enforce.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: 'npm'
+      - run: npm ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
   docker:
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test, e2e]
+    timeout-minutes: 20
+    needs: [lint, typecheck, test, e2e, migrations]
     permissions:
       contents: read
       packages: write
-    outputs:
-      image-digest: ${{ steps.build.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - name: Log in to GHCR
-        if: >-
-          github.event_name == 'push' &&
-          (github.ref == 'refs/heads/develop' ||
-           github.ref == 'refs/heads/main' ||
-           startsWith(github.ref, 'refs/tags/v'))
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Compute image tags
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
@@ -138,16 +185,46 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=semver,pattern={{version}}
-      - name: Build (and push on protected refs)
-        id: build
-        uses: docker/build-push-action@v6
+      - name: Build image (load locally for scanning)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
-          push: >-
-            ${{ github.event_name == 'push' &&
-                (github.ref == 'refs/heads/develop' ||
-                 github.ref == 'refs/heads/main' ||
-                 startsWith(github.ref, 'refs/tags/v')) }}
+          load: true
+          tags: app:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # Image vulnerability gate. Non-blocking today (pre-existing backlog);
+      # remove `continue-on-error` to enforce HIGH/CRITICAL as a hard gate.
+      - name: Trivy image scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # v0.29.0
+        with:
+          image-ref: app:scan
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: Log in to GHCR
+        if: >-
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/develop' ||
+           github.ref == 'refs/heads/main' ||
+           startsWith(github.ref, 'refs/tags/v'))
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push to GHCR (protected refs only, served from build cache)
+        if: >-
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/develop' ||
+           github.ref == 'refs/heads/main' ||
+           startsWith(github.ref, 'refs/tags/v'))
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

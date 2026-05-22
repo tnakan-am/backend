@@ -12,8 +12,9 @@ concurrency:
 jobs:
   ci-must-pass:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Wait for CI on this SHA, then require success
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -43,6 +44,7 @@ jobs:
   deploy:
     needs: ci-must-pass
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     environment:
       name: production
       url: https://homemade-prod.fly.dev
@@ -54,19 +56,26 @@ jobs:
       GHCR_IMAGE: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
       FLY_IMAGE: registry.fly.io/homemade-prod:sha-${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: superfly/flyctl-actions/setup-flyctl@1.5
+      - uses: superfly/flyctl-actions/setup-flyctl@fc53c09e1bc3be6f54706524e3b82c4f462f77be # 1.5
 
       - name: Authenticate Docker to Fly registry
         run: flyctl auth docker
+
+      - name: Capture currently-deployed image (for rollback)
+        id: prev
+        run: |
+          prev=$(flyctl status --app homemade-prod --json 2>/dev/null | jq -r '.ImageRef // empty')
+          echo "Current prod image: ${prev:-<none>}"
+          echo "image=$prev" >> "$GITHUB_OUTPUT"
 
       - name: Mirror image from GHCR to Fly registry
         run: |
@@ -91,7 +100,15 @@ jobs:
             fi
             sleep 5
           done
-          echo "Smoke test failed. To roll back:"
-          echo "  flyctl releases list -a homemade-prod"
-          echo "  flyctl deploy --image <previous-image> -a homemade-prod"
-          exit 1
+          echo "Smoke test failed"; exit 1
+
+      - name: Roll back to previous release on failure
+        if: failure() && steps.prev.outputs.image != ''
+        run: |
+          echo "Deploy/smoke failed — rolling prod back to ${{ steps.prev.outputs.image }}"
+          flyctl deploy \
+            --app homemade-prod \
+            --image "${{ steps.prev.outputs.image }}" \
+            --strategy immediate \
+            --wait-timeout 900
+          echo "Rollback complete."

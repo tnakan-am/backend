@@ -59,10 +59,11 @@ import { NotificationsModule } from './notifications/notifications.module';
         Review,
         Notification,
       ],
-      // Dev: synchronize entities directly for fast iteration.
-      // Prod: synchronize off, schema is created/updated by migrations only.
-      synchronize: process.env.NODE_ENV !== 'production',
-      migrationsRun: process.env.NODE_ENV === 'production',
+      // Local dev: synchronize entities directly for fast iteration.
+      // Everywhere else (test/staging/prod): schema comes from migrations only,
+      // so the migration that prod runs is exercised in CI and staging first.
+      synchronize: process.env.NODE_ENV === 'development',
+      migrationsRun: process.env.NODE_ENV !== 'development',
       migrations: ['dist/migrations/*.js'],
     }),
     ServeStaticModule.forRoot({
