@@ -14,20 +14,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify CI succeeded for this SHA
+      - name: Wait for CI on this SHA, then require success
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          conclusion=$(gh run list \
-            --workflow=ci.yml \
-            --commit="$GITHUB_SHA" \
-            --limit=1 \
-            --json conclusion \
-            --jq '.[0].conclusion')
-          echo "CI conclusion: $conclusion"
-          if [ "$conclusion" != "success" ]; then
-            echo "CI has not succeeded on $GITHUB_SHA"; exit 1
-          fi
+          for i in $(seq 1 60); do
+            conclusion=$(gh run list \
+              --workflow=ci.yml \
+              --commit="$GITHUB_SHA" \
+              --status=completed \
+              --limit=1 \
+              --json conclusion \
+              --jq '.[0].conclusion // empty')
+            if [ -n "$conclusion" ]; then
+              echo "CI conclusion on $GITHUB_SHA: $conclusion"
+              if [ "$conclusion" = "success" ]; then
+                exit 0
+              fi
+              echo "CI failed on $GITHUB_SHA"
+              exit 1
+            fi
+            echo "No completed CI run for $GITHUB_SHA yet, sleeping 30s..."
+            sleep 30
+          done
+          echo "Timed out waiting for CI to complete on $GITHUB_SHA"
+          exit 1
 
   deploy:
     needs: ci-must-pass
@@ -40,18 +51,35 @@ jobs:
       packages: read
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-      IMAGE: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+      GHCR_IMAGE: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+      FLY_IMAGE: registry.fly.io/homemade-prod:sha-${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: superfly/flyctl-actions/setup-flyctl@1.5
+
+      - name: Authenticate Docker to Fly registry
+        run: flyctl auth docker
+
+      - name: Mirror image from GHCR to Fly registry
+        run: |
+          docker pull "$GHCR_IMAGE"
+          docker tag "$GHCR_IMAGE" "$FLY_IMAGE"
+          docker push "$FLY_IMAGE"
 
       - name: Deploy to Fly (homemade-prod)
         run: |
           flyctl deploy \
             --config fly.prod.toml \
             --app homemade-prod \
-            --image "$IMAGE" \
+            --image "$FLY_IMAGE" \
             --remote-only \
             --wait-timeout 900
 

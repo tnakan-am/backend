@@ -6,7 +6,7 @@ kill_timeout = "30s"
 [env]
   NODE_ENV = "development"
   PORT = "3000"
-  DB_SSL = "true"
+  DB_SSL = "false"
 
 [deploy]
   release_command = "node node_modules/typeorm/cli.js migration:run -d dist/data-source.js"
