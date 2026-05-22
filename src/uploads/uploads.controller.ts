@@ -8,7 +8,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { v4 as uuidv4 } from 'uuid';
-import { extname, join } from 'path';
+import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtPayload } from '../auth/jwt-payload.interface';
@@ -19,13 +19,16 @@ function ensureDir(path: string): void {
   if (!existsSync(path)) mkdirSync(path, { recursive: true });
 }
 
-const ALLOWED_MIME = new Set([
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'image/gif',
-  'image/avif',
-]);
+// Allowlist maps a trusted mime type to the extension we control.
+// The saved filename's extension is derived from this map — never from the
+// client-supplied originalname — so a spoofed `.html` can never reach disk.
+const MIME_TO_EXT: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+  'image/avif': '.avif',
+};
 
 @Controller('uploads')
 export class UploadsController {
@@ -35,21 +38,18 @@ export class UploadsController {
       storage: diskStorage({
         destination: (req, _file, cb) => {
           const user = (req as any).user as JwtPayload | undefined;
-          const dir = join(
-            process.cwd(),
-            uploadsDir,
-            user?.sub ?? 'anonymous',
-          );
+          const dir = join(process.cwd(), uploadsDir, user?.sub ?? 'anonymous');
           ensureDir(dir);
           cb(null, dir);
         },
         filename: (_req, file, cb) => {
-          cb(null, `${uuidv4()}${extname(file.originalname)}`);
+          const ext = MIME_TO_EXT[file.mimetype];
+          cb(null, `${uuidv4()}${ext}`);
         },
       }),
       limits: { fileSize: 10 * 1024 * 1024 },
       fileFilter: (_req, file, cb) => {
-        if (!ALLOWED_MIME.has(file.mimetype)) {
+        if (!MIME_TO_EXT[file.mimetype]) {
           cb(new BadRequestException('Unsupported file type'), false);
           return;
         }
