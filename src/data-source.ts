@@ -16,6 +16,8 @@ dotenv.config();
 
 const AppDataSource = new DataSource({
   type: 'postgres',
+  // Prefer DATABASE_URL (injected by managed hosts like Fly Postgres);
+  // fall back to discrete DB_* vars for local development.
   ...(process.env.DATABASE_URL
     ? { url: process.env.DATABASE_URL }
     : {

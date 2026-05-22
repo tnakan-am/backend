@@ -5,13 +5,21 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, DataSource, In, Repository } from 'typeorm';
+import {
+  Between,
+  DataSource,
+  In,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  Repository,
+} from 'typeorm';
 import { Order, OrderStatus } from './entities/order.entity';
 import { OrderProduct } from './entities/order-product.entity';
 import { OrderStatusHistory } from './entities/order-status-history.entity';
 import { Product } from '../products/entities/product.entity';
-import { Users } from '../users/entities/user.entity';
+import { Users, UserType } from '../users/entities/user.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { JwtPayload } from '../auth/jwt-payload.interface';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
 
@@ -119,6 +127,25 @@ export class OrdersService {
     return order;
   }
 
+  /**
+   * Loads an order only if the requester is its owner, a vendor on it, or an
+   * admin. Used by the controller to prevent IDOR; internal flows use getById.
+   */
+  async getByIdForUser(id: string, user: JwtPayload): Promise<Order> {
+    const order = await this.getById(id);
+    this.assertCanAccess(order, user);
+    return order;
+  }
+
+  private assertCanAccess(order: Order, user: JwtPayload): void {
+    const isAdmin = user.type === UserType.ADMIN;
+    const isOwner = order.userId === user.sub;
+    const isVendor = order.vendorIds.includes(user.sub);
+    if (!isAdmin && !isOwner && !isVendor) {
+      throw new ForbiddenException('You cannot access this order');
+    }
+  }
+
   async listForCustomer(userId: string): Promise<Order[]> {
     return this.orderRepository.find({
       where: { userId },
@@ -140,6 +167,10 @@ export class OrdersService {
     const where: any = {};
     if (startDate && endDate) {
       where.createdAt = Between(new Date(startDate), new Date(endDate));
+    } else if (startDate) {
+      where.createdAt = MoreThanOrEqual(new Date(startDate));
+    } else if (endDate) {
+      where.createdAt = LessThanOrEqual(new Date(endDate));
     }
     return this.orderRepository.find({
       where,
@@ -150,16 +181,17 @@ export class OrdersService {
 
   async updateOrderStatus(
     orderId: string,
-    userId: string,
+    user: JwtPayload,
     status: OrderStatus,
   ): Promise<Order> {
     const order = await this.getById(orderId);
+    this.assertCanAccess(order, user);
     order.status = status;
     await this.orderRepository.save(order);
     await this.statusHistoryRepository.save(
       this.statusHistoryRepository.create({
         orderId,
-        userId,
+        userId: user.sub,
         status,
       }),
     );

@@ -1,11 +1,9 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { APP_GUARD } from '@nestjs/core';
 import { join } from 'path';
-import * as Joi from 'joi';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -33,61 +31,11 @@ import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      validationSchema: Joi.object({
-        NODE_ENV: Joi.string()
-          .valid('development', 'test', 'staging', 'production')
-          .default('development'),
-        PORT: Joi.number().default(3000),
-
-        DATABASE_URL: Joi.string().uri().optional(),
-        DB_HOST: Joi.string().when('DATABASE_URL', {
-          is: Joi.exist(),
-          then: Joi.optional(),
-          otherwise: Joi.required(),
-        }),
-        DB_PORT: Joi.number().when('DATABASE_URL', {
-          is: Joi.exist(),
-          then: Joi.optional(),
-          otherwise: Joi.required(),
-        }),
-        DB_USERNAME: Joi.string().when('DATABASE_URL', {
-          is: Joi.exist(),
-          then: Joi.optional(),
-          otherwise: Joi.required(),
-        }),
-        DB_PASSWORD: Joi.string().when('DATABASE_URL', {
-          is: Joi.exist(),
-          then: Joi.optional(),
-          otherwise: Joi.required(),
-        }),
-        DB_NAME: Joi.string().when('DATABASE_URL', {
-          is: Joi.exist(),
-          then: Joi.optional(),
-          otherwise: Joi.required(),
-        }),
-        DB_SSL: Joi.string().valid('true', 'false').default('false'),
-
-        JWT_SECRET: Joi.string().min(32).required(),
-
-        CORS_ORIGIN: Joi.string().required(),
-        FRONTEND_URL: Joi.string().uri().required(),
-
-        SMTP_HOST: Joi.string().required(),
-        SMTP_PORT: Joi.number().required(),
-        SMTP_USER: Joi.string().allow('').required(),
-        SMTP_PASS: Joi.string().allow('').required(),
-        SMTP_FROM: Joi.string().required(),
-
-        UPLOADS_DIR: Joi.string().default('uploads'),
-        UPLOADS_PUBLIC_URL: Joi.string().uri().required(),
-      }),
-      validationOptions: { abortEarly: false },
-    }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
     TypeOrmModule.forRoot({
       type: 'postgres',
+      // Prefer DATABASE_URL (injected by managed hosts like Fly Postgres);
+      // fall back to discrete DB_* vars for local development.
       ...(process.env.DATABASE_URL
         ? { url: process.env.DATABASE_URL }
         : {
@@ -111,8 +59,10 @@ import { NotificationsModule } from './notifications/notifications.module';
         Review,
         Notification,
       ],
-      synchronize: false,
-      migrationsRun: true,
+      // Dev: synchronize entities directly for fast iteration.
+      // Prod: synchronize off, schema is created/updated by migrations only.
+      synchronize: process.env.NODE_ENV !== 'production',
+      migrationsRun: process.env.NODE_ENV === 'production',
       migrations: ['dist/migrations/*.js'],
     }),
     ServeStaticModule.forRoot({

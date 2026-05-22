@@ -3,7 +3,7 @@ import {
   IsEmail,
   IsNotEmpty,
   MinLength,
-  IsEnum,
+  IsIn,
   IsOptional,
   IsBoolean,
   ValidateNested,
@@ -13,6 +13,13 @@ import { UserType } from '../entities/user.entity';
 import { AddressDto } from './address.dto';
 
 export { UserType };
+
+// Public self-registration may only create customer or business accounts.
+// Admins are provisioned out-of-band, never through the @Public() register route.
+export const SELF_REGISTRABLE_TYPES = [
+  UserType.CUSTOMER,
+  UserType.BUSINESS,
+] as const;
 
 export class CreateUserDto {
   @IsEmail()
@@ -32,7 +39,7 @@ export class CreateUserDto {
   @IsOptional()
   phoneNumber?: string;
 
-  @IsEnum(UserType)
+  @IsIn(SELF_REGISTRABLE_TYPES as readonly UserType[])
   @IsNotEmpty()
   type: UserType;
 

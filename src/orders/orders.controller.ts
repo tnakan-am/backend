@@ -50,8 +50,8 @@ export class OrdersController {
   }
 
   @Get(':id')
-  getById(@Param('id') id: string) {
-    return this.orders.getById(id);
+  getById(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.orders.getByIdForUser(id, user);
   }
 
   @Patch(':id/status')
@@ -60,7 +60,7 @@ export class OrdersController {
     @Body() dto: UpdateOrderStatusDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.orders.updateOrderStatus(id, user.sub, dto.status);
+    return this.orders.updateOrderStatus(id, user, dto.status);
   }
 
   @Patch(':id/products/:productId/status')
