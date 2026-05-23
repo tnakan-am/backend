@@ -148,13 +148,13 @@ jobs:
       - run: npm run build
       - run: npm run test:e2e
 
-  # Dependency vulnerability gate. Non-blocking today because the repo has a
-  # pre-existing prod-dep backlog (run `npm audit fix`/`--force` to clear).
-  # Remove `continue-on-error` to enforce.
+  # Dependency vulnerability scan (report-only). The repo has a pre-existing
+  # prod-dep backlog that needs breaking upgrades (NestJS 11, multer 2, bcrypt 6,
+  # etc.) to fully clear. To turn this into a hard gate once cleared, drop the
+  # trailing `|| true`.
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -162,8 +162,8 @@ jobs:
           node-version-file: .nvmrc
           cache: 'npm'
       - run: npm ci
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+      - name: Audit production dependencies (report-only)
+        run: npm audit --omit=dev --audit-level=high || true
 
   docker:
     runs-on: ubuntu-latest
@@ -193,17 +193,17 @@ jobs:
           tags: app:scan
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      # Image vulnerability gate. Non-blocking today (pre-existing backlog);
-      # remove `continue-on-error` to enforce HIGH/CRITICAL as a hard gate.
-      - name: Trivy image scan
-        continue-on-error: true
+      # Image vulnerability scan (report-only). Prints HIGH/CRITICAL findings
+      # without failing the build. Set exit-code to '1' to make it a hard gate
+      # once the dependency backlog is cleared.
+      - name: Trivy image scan (report-only)
         uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # v0.29.0
         with:
           image-ref: app:scan
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          exit-code: '1'
+          exit-code: '0'
       - name: Log in to GHCR
         if: >-
           github.event_name == 'push' &&
