@@ -1,5 +1,5 @@
 app = "homemade-prod"
-primary_region = "iad"
+primary_region = "fra"
 kill_signal = "SIGINT"
 kill_timeout = "30s"
 
@@ -17,12 +17,12 @@ kill_timeout = "30s"
   force_https = true
   auto_stop_machines = false
   auto_start_machines = true
-  min_machines_running = 2
+  min_machines_running = 1
 
   [http_service.concurrency]
     type = "requests"
-    soft_limit = 400
-    hard_limit = 500
+    soft_limit = 200
+    hard_limit = 250
 
   [[http_service.checks]]
     grace_period = "30s"
@@ -32,5 +32,9 @@ kill_timeout = "30s"
     path = "/health"
 
 [[vm]]
-  size = "shared-cpu-2x"
-  memory = "1gb"
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[[mounts]]
+  source = "uploads"
+  destination = "/usr/src/app/uploads"
