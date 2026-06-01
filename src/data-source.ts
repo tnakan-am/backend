@@ -16,11 +16,18 @@ dotenv.config();
 
 const AppDataSource = new DataSource({
   type: 'postgres',
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT, 10) || 5432,
-  username: process.env.DB_USERNAME || 'postgres',
-  password: process.env.DB_PASSWORD || 'postgres',
-  database: process.env.DB_NAME || 'homemade',
+  // Prefer DATABASE_URL (injected by managed hosts like Fly Postgres);
+  // fall back to discrete DB_* vars for local development.
+  ...(process.env.DATABASE_URL
+    ? { url: process.env.DATABASE_URL }
+    : {
+        host: process.env.DB_HOST || 'localhost',
+        port: parseInt(process.env.DB_PORT, 10) || 5432,
+        username: process.env.DB_USERNAME || 'postgres',
+        password: process.env.DB_PASSWORD || 'postgres',
+        database: process.env.DB_NAME || 'homemade',
+      }),
+  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
   entities: [
     Users,
     Product,

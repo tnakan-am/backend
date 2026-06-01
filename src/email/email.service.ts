@@ -86,7 +86,10 @@ export class EmailService {
         if (previewUrl) this.logger.log(`Ethereal preview: ${previewUrl}`);
       }
     } catch (error) {
-      this.logger.error(`Failed to send "${opts.subject}" to ${opts.to}`, error);
+      this.logger.error(
+        `Failed to send "${opts.subject}" to ${opts.to}`,
+        error,
+      );
       throw new Error('Failed to send email');
     }
   }

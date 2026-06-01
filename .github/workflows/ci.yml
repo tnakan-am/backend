@@ -1,0 +1,231 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: 'npm'
+      - run: npm ci
+      - name: ESLint
+        run: npx eslint "{src,apps,libs,test}/**/*.ts" --max-warnings 0
+      - name: Prettier check
+        run: npx prettier --check "src/**/*.ts" "test/**/*.ts"
+
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: 'npm'
+      - run: npm ci
+      - run: npx tsc --noEmit -p tsconfig.json
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: 'npm'
+      - run: npm ci
+      - run: npm test -- --coverage --passWithNoTests
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: unit-coverage
+          path: coverage/
+          if-no-files-found: ignore
+
+  # Validates that the migration prod relies on applies cleanly to a fresh DB.
+  migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:14-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: homemade_mig
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: homemade_mig
+      DB_SSL: 'false'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+      - name: Run migrations against a fresh database
+        run: node ./node_modules/typeorm/cli.js migration:run -d dist/data-source.js
+      - name: Re-run migrations (must be a no-op — catches non-idempotent migrations)
+        run: node ./node_modules/typeorm/cli.js migration:run -d dist/data-source.js
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:14-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: homemade_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      # NODE_ENV=test => migrationsRun is on, so the app builds its schema from
+      # the same migration prod uses (not entity synchronize).
+      NODE_ENV: test
+      PORT: 3000
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: homemade_test
+      DB_SSL: 'false'
+      JWT_SECRET: ci_dummy_jwt_secret_at_least_thirty_two_chars_long
+      CORS_ORIGIN: http://localhost:4200
+      FRONTEND_URL: http://localhost:4200
+      SMTP_HOST: localhost
+      SMTP_PORT: 1025
+      SMTP_USER: ''
+      SMTP_PASS: ''
+      SMTP_FROM: noreply@test.local
+      UPLOADS_DIR: uploads
+      UPLOADS_PUBLIC_URL: http://localhost:3000/uploads
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:e2e
+
+  # Dependency vulnerability scan (report-only). The repo has a pre-existing
+  # prod-dep backlog that needs breaking upgrades (NestJS 11, multer 2, bcrypt 6,
+  # etc.) to fully clear. To turn this into a hard gate once cleared, drop the
+  # trailing `|| true`.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: 'npm'
+      - run: npm ci
+      - name: Audit production dependencies (report-only)
+        run: npm audit --omit=dev --audit-level=high || true
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [lint, typecheck, test, e2e, migrations]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=long
+            type=ref,event=branch
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+      - name: Build image (load locally for scanning)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          load: true
+          tags: app:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # Image vulnerability scan (report-only). Prints HIGH/CRITICAL findings
+      # without failing the build. Set exit-code to '1' to make it a hard gate
+      # once the dependency backlog is cleared.
+      - name: Trivy image scan (report-only)
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: app:scan
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '0'
+      - name: Log in to GHCR
+        if: >-
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/develop' ||
+           github.ref == 'refs/heads/main' ||
+           startsWith(github.ref, 'refs/tags/v'))
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push to GHCR (protected refs only, served from build cache)
+        if: >-
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/develop' ||
+           github.ref == 'refs/heads/main' ||
+           startsWith(github.ref, 'refs/tags/v'))
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

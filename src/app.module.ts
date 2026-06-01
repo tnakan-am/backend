@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ServeStaticModule } from '@nestjs/serve-static';
@@ -32,15 +31,22 @@ import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
     TypeOrmModule.forRoot({
       type: 'postgres',
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT, 10) || 5432,
-      username: process.env.DB_USERNAME || 'postgres',
-      password: process.env.DB_PASSWORD || 'postgres',
-      database: process.env.DB_NAME || 'homemade',
+      // Prefer DATABASE_URL (injected by managed hosts like Fly Postgres);
+      // fall back to discrete DB_* vars for local development.
+      ...(process.env.DATABASE_URL
+        ? { url: process.env.DATABASE_URL }
+        : {
+            host: process.env.DB_HOST || 'localhost',
+            port: parseInt(process.env.DB_PORT, 10) || 5432,
+            username: process.env.DB_USERNAME || 'postgres',
+            password: process.env.DB_PASSWORD || 'postgres',
+            database: process.env.DB_NAME || 'homemade',
+          }),
+      ssl:
+        process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
       entities: [
         Users,
         Product,
@@ -53,10 +59,11 @@ import { NotificationsModule } from './notifications/notifications.module';
         Review,
         Notification,
       ],
-      // Dev: synchronize entities directly for fast iteration.
-      // Prod: synchronize off, schema is created/updated by migrations only.
-      synchronize: process.env.NODE_ENV !== 'production',
-      migrationsRun: process.env.NODE_ENV === 'production',
+      // Local dev: synchronize entities directly for fast iteration.
+      // Everywhere else (test/staging/prod): schema comes from migrations only,
+      // so the migration that prod runs is exercised in CI and staging first.
+      synchronize: process.env.NODE_ENV === 'development',
+      migrationsRun: process.env.NODE_ENV !== 'development',
       migrations: ['dist/migrations/*.js'],
     }),
     ServeStaticModule.forRoot({
@@ -75,9 +82,6 @@ import { NotificationsModule } from './notifications/notifications.module';
     NotificationsModule,
   ],
   controllers: [AppController],
-  providers: [
-    AppService,
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
-  ],
+  providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

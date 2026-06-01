@@ -1,4 +1,10 @@
-import { IsBooleanString, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsBooleanString,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class PaginationDto {
