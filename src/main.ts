@@ -22,10 +22,19 @@ async function bootstrap() {
     }),
   );
 
+  // Allow exact origins, plus wildcard patterns (e.g. Firebase PR preview
+  // channels like https://project--pr61-branch-hash.web.app). An entry
+  // containing "*" becomes a RegExp; "*" matches within a single DNS label.
+  const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const origins = (process.env.CORS_ORIGIN || 'http://localhost:4200')
     .split(',')
     .map((s) => s.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((o) =>
+      o.includes('*')
+        ? new RegExp(`^${o.split('*').map(escapeRegExp).join('[^.]*')}$`)
+        : o,
+    );
 
   app.enableCors({
     origin: origins,
