@@ -39,7 +39,18 @@ Before implementing:
 
 Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
 
-#### 3. Surgical Changes
+#### 3. YAGNI ("You Aren't Gonna Need It")
+
+**Don't build for a future that may never come.**
+
+- Implement only what the current requirement needs, not what it _might_ need later.
+- No speculative generalization: no config options, hooks, or extension points "just in case."
+- No premature abstraction — wait for the third repetition before extracting.
+- Delete/omit code paths guarding scenarios that can't happen yet.
+
+If you catch yourself saying "we'll probably need this later," stop. Add it _later_, when it's actually needed. Simpler now beats flexible-maybe.
+
+#### 4. Surgical Changes
 
 **Touch only what you must. Clean up only your own mess.**
 
@@ -57,7 +68,7 @@ When your changes create orphans:
 
 The test: every changed line should trace directly to the user's request.
 
-#### 4. Goal-Driven Execution
+#### 5. Goal-Driven Execution
 
 **Define success criteria. Loop until verified.**
 
