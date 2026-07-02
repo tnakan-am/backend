@@ -51,12 +51,21 @@ export class OrdersService {
       async (em) => {
         // Lock the product rows so the stock check-and-decrement below is
         // atomic against concurrent orders (SELECT ... FOR UPDATE).
+        // Deterministic lock order (id ASC) so concurrent orders over
+        // overlapping product sets cannot deadlock each other.
         const locked = await em.find(Product, {
           where: { id: In(productIds) },
+          order: { id: 'ASC' },
           lock: { mode: 'pessimistic_write' },
         });
         if (locked.length !== productIds.length) {
           throw new BadRequestException('One or more products were not found');
+        }
+        const unapproved = locked.find((p) => !p.approved);
+        if (unapproved) {
+          throw new BadRequestException(
+            `Product "${unapproved.name}" is not available for purchase`,
+          );
         }
         const productsById = new Map(locked.map((p) => [p.id, p]));
 
@@ -174,29 +183,62 @@ export class OrdersService {
     }
   }
 
+  // Fulfillment progression used to forbid regressions (e.g. delivered back
+  // to processing). 'seen' is an acknowledgement, not a fulfillment state.
+  private static readonly STATUS_RANK: Record<OrderStatus, number> = {
+    [OrderStatus.pending]: 0,
+    [OrderStatus.seen]: 0,
+    [OrderStatus.processing]: 1,
+    [OrderStatus.delivered]: 2,
+  };
+
   /**
-   * Restricts which order statuses each role may set: admins may set any;
-   * vendors may advance to processing/delivered; the customer (owner) may only
-   * acknowledge with 'seen'. `pending` is set by the system at order creation.
+   * Shared status matrix for orders and order lines: only the customer
+   * (owner) may acknowledge with 'seen'; admins may set any fulfillment
+   * status; vendors may advance to processing/delivered but not regress.
+   * `pending` is set by the system at order creation.
    */
+  private assertCanSetStatus(opts: {
+    current: OrderStatus;
+    next: OrderStatus;
+    isAdmin: boolean;
+    isVendor: boolean;
+    isOwner: boolean;
+  }): void {
+    const { current, next, isAdmin, isVendor, isOwner } = opts;
+    if (next === OrderStatus.seen) {
+      if (isOwner) return;
+      throw new ForbiddenException(
+        'Only the customer can acknowledge with seen',
+      );
+    }
+    if (isAdmin) return;
+    if (isVendor) {
+      if (next !== OrderStatus.processing && next !== OrderStatus.delivered) {
+        throw new ForbiddenException('Vendors cannot set this order status');
+      }
+      if (
+        OrdersService.STATUS_RANK[next] < OrdersService.STATUS_RANK[current]
+      ) {
+        throw new ForbiddenException('Order status cannot move backwards');
+      }
+      return;
+    }
+    throw new ForbiddenException('You cannot set this order status');
+  }
+
   private assertCanSetOrderStatus(
     order: Order,
     user: JwtPayload,
     status: OrderStatus,
   ): void {
-    if (user.type === UserType.ADMIN) return;
-    const isVendor = order.vendorIds.includes(user.sub);
-    if (isVendor) {
-      if (
-        status === OrderStatus.processing ||
-        status === OrderStatus.delivered
-      ) {
-        return;
-      }
-      throw new ForbiddenException('Vendors cannot set this order status');
-    }
-    if (order.userId === user.sub && status === OrderStatus.seen) return;
-    throw new ForbiddenException('You cannot set this order status');
+    this.assertCanSetStatus({
+      current: order.status,
+      next: status,
+      isAdmin: user.type === UserType.ADMIN,
+      isVendor: order.vendorIds.includes(user.sub),
+      isOwner: order.userId === user.sub,
+    });
   }
 
   async listForCustomer(userId: string): Promise<Order[]> {
@@ -240,6 +282,9 @@ export class OrdersService {
     const order = await this.getById(orderId);
     this.assertCanAccess(order, user);
     this.assertCanSetOrderStatus(order, user, status);
+    // 'seen' is a customer acknowledgement, not a fulfillment state: leave the
+    // order, its history, and the vendors' notifications untouched.
+    if (status === OrderStatus.seen) return order;
     order.status = status;
     await this.orderRepository.save(order);
     await this.statusHistoryRepository.save(
@@ -263,7 +308,7 @@ export class OrdersService {
   async updateOrderProductStatus(
     orderId: string,
     productId: string,
-    userId: string,
+    user: JwtPayload,
     status: OrderStatus,
   ): Promise<OrderProduct> {
     const orderProduct = await this.orderProductRepository.findOne({
@@ -271,15 +316,16 @@ export class OrdersService {
     });
     if (!orderProduct) throw new NotFoundException('Order item not found');
 
-    if (orderProduct.vendorId !== userId) {
-      // Allow customer (order owner) to mark items as 'seen'.
-      const order = await this.getById(orderId);
-      if (!(order.userId === userId && status === OrderStatus.seen)) {
-        throw new ForbiddenException(
-          'Only the vendor can change this order item status',
-        );
-      }
-    }
+    const order = await this.getById(orderId);
+    this.assertCanAccess(order, user);
+    this.assertCanSetStatus({
+      current: orderProduct.status,
+      next: status,
+      isAdmin: user.type === UserType.ADMIN,
+      isVendor: orderProduct.vendorId === user.sub,
+      isOwner: order.userId === user.sub,
+    });
+    if (status === OrderStatus.seen) return orderProduct;
 
     orderProduct.status = status;
     return this.orderProductRepository.save(orderProduct);

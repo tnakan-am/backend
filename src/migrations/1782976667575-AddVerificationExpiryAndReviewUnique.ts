@@ -28,6 +28,22 @@ export class AddVerificationExpiryAndReviewUnique1782976667575
          AND (a."createdAt" > b."createdAt"
               OR (a."createdAt" = b."createdAt" AND a."id" > b."id"))`,
     );
+    // The dedup above removed rows that were baked into the denormalized
+    // rating aggregates; recompute them from the surviving reviews (matches
+    // ProductsService.recomputeReviewAggregates).
+    await queryRunner.query(
+      `UPDATE "products" p
+          SET "avgReview" = agg.avg,
+              "numberReview" = agg.cnt
+         FROM (SELECT "productId",
+                      COALESCE(AVG(stars), 0)::numeric(3,2) AS avg,
+                      COUNT(*)::int AS cnt
+                 FROM "reviews"
+                GROUP BY "productId") agg
+        WHERE p."id" = agg."productId"
+          AND (p."avgReview" IS DISTINCT FROM agg.avg
+               OR p."numberReview" IS DISTINCT FROM agg.cnt)`,
+    );
     // Repoint any order line whose reviewRef pointed at a now-deleted duplicate
     // to the surviving review for that (orderId, productId), so the linkage the
     // "already reviewed" guard depends on is not left dangling.

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -68,7 +69,15 @@ export class ProductsController {
   batchUpdate(
     @Body() patch: UpdateProductDto,
     @CurrentUser() user: JwtPayload,
+    @Query('userId') legacyUserId?: string,
   ) {
+    // The old contract accepted ?userId= to target any vendor; reject a
+    // foreign target loudly rather than silently patching the caller's rows.
+    if (legacyUserId !== undefined && legacyUserId !== user.sub) {
+      throw new BadRequestException(
+        'The userId query parameter is no longer supported; batch update applies to your own products',
+      );
+    }
     return this.productsService.batchUpdateByUserId(user.sub, patch);
   }
 

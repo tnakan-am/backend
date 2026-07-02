@@ -1,5 +1,9 @@
 import { Test } from '@nestjs/testing';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ProductsService } from './products.service';
 import { Product, Unit, DeliveryOption } from './entities/product.entity';
@@ -18,6 +22,7 @@ describe('ProductsService', () => {
     create: jest.Mock;
     save: jest.Mock;
     merge: jest.Mock;
+    update: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -26,6 +31,7 @@ describe('ProductsService', () => {
       create: jest.fn((v) => v),
       save: jest.fn((v) => v),
       merge: jest.fn((a, b) => ({ ...a, ...b })),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
     };
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -117,6 +123,25 @@ describe('ProductsService', () => {
         service.setAvailability('p1', '5', jwt('stranger', UserType.CUSTOMER)),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(repo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('batchUpdateByUserId', () => {
+    it('rejects an empty patch instead of issuing an empty UPDATE', async () => {
+      await expect(
+        service.batchUpdateByUserId('u1', {}),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it('updates only the given user’s products', async () => {
+      await expect(
+        service.batchUpdateByUserId('u1', { availability: '0' }),
+      ).resolves.toEqual({ updated: 1 });
+      expect(repo.update).toHaveBeenCalledWith(
+        { userId: 'u1' },
+        { availability: '0' },
+      );
     });
   });
 });

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   HttpException,
   HttpStatus,
@@ -170,6 +171,11 @@ export class ProductsService {
     userId: string,
     patch: Partial<Product>,
   ): Promise<{ updated: number }> {
+    // The whitelist ValidationPipe may strip every field the client sent;
+    // TypeORM update() throws on an empty patch, so fail loudly instead.
+    if (Object.keys(patch).length === 0) {
+      throw new BadRequestException('No updatable fields provided');
+    }
     const result = await this.productRepository.update({ userId }, patch);
     return { updated: result.affected || 0 };
   }

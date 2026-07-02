@@ -73,7 +73,7 @@ export class OrdersController {
     return this.orders.updateOrderProductStatus(
       id,
       productId,
-      user.sub,
+      user,
       dto.status,
     );
   }
