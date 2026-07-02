@@ -1,19 +1,37 @@
 import { Test } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ProductsService } from './products.service';
 import { Product, Unit, DeliveryOption } from './entities/product.entity';
 import { ProductDto } from './dto/product.dto';
+import { UserType } from '../users/entities/user.entity';
+import { JwtPayload } from '../auth/jwt-payload.interface';
+
+function jwt(sub: string, type: UserType): JwtPayload {
+  return { sub, type, email: 'x@y.z', displayName: 'X' };
+}
 
 describe('ProductsService', () => {
   let service: ProductsService;
-  let repo: { findOne: jest.Mock; create: jest.Mock; save: jest.Mock };
+  let repo: {
+    findOne: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+    merge: jest.Mock;
+    update: jest.Mock;
+  };
 
   beforeEach(async () => {
     repo = {
       findOne: jest.fn(),
       create: jest.fn((v) => v),
       save: jest.fn((v) => v),
+      merge: jest.fn((a, b) => ({ ...a, ...b })),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
     };
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -66,5 +84,122 @@ describe('ProductsService', () => {
     await service.create(dto);
     const created = repo.create.mock.calls[0][0];
     expect(created.approved).toBe(true);
+  });
+
+  describe('update authorization', () => {
+    it('rejects a non-owner non-admin (IDOR guard)', async () => {
+      repo.findOne.mockResolvedValue({ id: 'p1', userId: 'owner' } as Product);
+      await expect(
+        service.update('p1', { name: 'x' }, jwt('stranger', UserType.CUSTOMER)),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('allows the owner', async () => {
+      repo.findOne.mockResolvedValue({ id: 'p1', userId: 'owner' } as Product);
+      await service.update(
+        'p1',
+        { name: 'x' },
+        jwt('owner', UserType.BUSINESS),
+      );
+      expect(repo.save).toHaveBeenCalled();
+    });
+
+    it('allows an admin', async () => {
+      repo.findOne.mockResolvedValue({ id: 'p1', userId: 'owner' } as Product);
+      await service.update(
+        'p1',
+        { name: 'x' },
+        jwt('someadmin', UserType.ADMIN),
+      );
+      expect(repo.save).toHaveBeenCalled();
+    });
+  });
+
+  describe('setAvailability authorization', () => {
+    it('rejects a non-owner non-admin', async () => {
+      repo.findOne.mockResolvedValue({ id: 'p1', userId: 'owner' } as Product);
+      await expect(
+        service.setAvailability('p1', '5', jwt('stranger', UserType.CUSTOMER)),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('batchUpdateByUserId', () => {
+    it('rejects an empty patch instead of issuing an empty UPDATE', async () => {
+      await expect(
+        service.batchUpdateByUserId('u1', {}),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it('updates only the given user’s products', async () => {
+      await expect(
+        service.batchUpdateByUserId('u1', { availability: '0' }),
+      ).resolves.toEqual({ updated: 1 });
+      expect(repo.update).toHaveBeenCalledWith(
+        { userId: 'u1' },
+        { availability: '0' },
+      );
+    });
+  });
+});
+
+describe('ProductsService.getProducts visibility', () => {
+  let service: ProductsService;
+  let andWhereCalls: string[];
+
+  beforeEach(async () => {
+    andWhereCalls = [];
+    const qb: Record<string, jest.Mock> = {
+      andWhere: jest.fn((sql: string) => {
+        andWhereCalls.push(sql);
+        return qb;
+      }),
+      orderBy: jest.fn(() => qb),
+      addOrderBy: jest.fn(() => qb),
+      skip: jest.fn(() => qb),
+      take: jest.fn(() => qb),
+      getCount: jest.fn().mockResolvedValue(0),
+      getMany: jest.fn().mockResolvedValue([]),
+    };
+    const repo = { createQueryBuilder: jest.fn(() => qb) };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ProductsService,
+        { provide: getRepositoryToken(Product), useValue: repo },
+      ],
+    }).compile();
+    service = moduleRef.get(ProductsService);
+  });
+
+  const approvedFilter = () =>
+    andWhereCalls.some((s) => s.includes('p.approved = true'));
+
+  it('forces approved-only for anonymous callers', async () => {
+    await service.getProducts({});
+    expect(approvedFilter()).toBe(true);
+  });
+
+  it('lets an admin see unapproved products (moderation queue)', async () => {
+    await service.getProducts({}, jwt('admin', UserType.ADMIN));
+    expect(approvedFilter()).toBe(false);
+  });
+
+  it('lets a vendor see their own unapproved products', async () => {
+    await service.getProducts(
+      { userId: 'vendor' },
+      jwt('vendor', UserType.BUSINESS),
+    );
+    expect(approvedFilter()).toBe(false);
+  });
+
+  it('still hides unapproved when a vendor queries another vendor', async () => {
+    await service.getProducts(
+      { userId: 'other' },
+      jwt('vendor', UserType.BUSINESS),
+    );
+    expect(approvedFilter()).toBe(true);
   });
 });

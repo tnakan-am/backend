@@ -1,4 +1,6 @@
 import {
+  BadRequestException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -10,6 +12,8 @@ import { Product } from './entities/product.entity';
 import { ProductDto } from './dto/product.dto';
 import { PaginatedResult, PaginationDto } from './dto/pagination.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { JwtPayload } from '../auth/jwt-payload.interface';
+import { UserType } from '../users/entities/user.entity';
 
 const ALLOWED_SORT_FIELDS = new Set([
   'createdAt',
@@ -27,7 +31,10 @@ export class ProductsService {
     private readonly productRepository: Repository<Product>,
   ) {}
 
-  async getProducts(dto: PaginationDto): Promise<PaginatedResult<Product>> {
+  async getProducts(
+    dto: PaginationDto,
+    viewer?: JwtPayload,
+  ): Promise<PaginatedResult<Product>> {
     const {
       page = 1,
       limit = 20,
@@ -44,8 +51,19 @@ export class ProductsService {
     const qb: SelectQueryBuilder<Product> =
       this.productRepository.createQueryBuilder('p');
 
-    if (approved !== undefined) {
-      qb.andWhere('p.approved = :approved', { approved: approved === 'true' });
+    // Unapproved products are only visible to an admin (moderation queue) or to
+    // a vendor scoping the query to their own listings. Everyone else — including
+    // anonymous callers — only ever sees approved products.
+    const isAdmin = viewer?.type === UserType.ADMIN;
+    const isOwnScope = !!viewer && !!userId && userId === viewer.sub;
+    if (isAdmin || isOwnScope) {
+      if (approved !== undefined) {
+        qb.andWhere('p.approved = :approved', {
+          approved: approved === 'true',
+        });
+      }
+    } else {
+      qb.andWhere('p.approved = true');
     }
     if (userId) qb.andWhere('p.userId = :userId', { userId });
     if (category) qb.andWhere('p.category = :category', { category });
@@ -105,8 +123,13 @@ export class ProductsService {
     return this.productRepository.save(entity);
   }
 
-  async update(id: string, dto: UpdateProductDto): Promise<Product> {
+  async update(
+    id: string,
+    dto: UpdateProductDto,
+    user: JwtPayload,
+  ): Promise<Product> {
     const existing = await this.getById(id);
+    this.assertCanModify(existing, user);
     const merged = this.productRepository.merge(existing, dto);
     return this.productRepository.save(merged);
   }
@@ -125,16 +148,34 @@ export class ProductsService {
     return this.productRepository.save(product);
   }
 
-  async setAvailability(id: string, availability: string): Promise<Product> {
+  async setAvailability(
+    id: string,
+    availability: string,
+    user: JwtPayload,
+  ): Promise<Product> {
     const product = await this.getById(id);
+    this.assertCanModify(product, user);
     product.availability = availability;
     return this.productRepository.save(product);
+  }
+
+  private assertCanModify(product: Product, user: JwtPayload): void {
+    const isAdmin = user.type === UserType.ADMIN;
+    const isOwner = product.userId === user.sub;
+    if (!isAdmin && !isOwner) {
+      throw new ForbiddenException('You cannot modify this product');
+    }
   }
 
   async batchUpdateByUserId(
     userId: string,
     patch: Partial<Product>,
   ): Promise<{ updated: number }> {
+    // The whitelist ValidationPipe may strip every field the client sent;
+    // TypeORM update() throws on an empty patch, so fail loudly instead.
+    if (Object.keys(patch).length === 0) {
+      throw new BadRequestException('No updatable fields provided');
+    }
     const result = await this.productRepository.update({ userId }, patch);
     return { updated: result.affected || 0 };
   }

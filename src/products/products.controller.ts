@@ -1,8 +1,10 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -10,8 +12,9 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ProductsService } from './products.service';
-import { ProductDto } from './dto/product.dto';
+import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ApproveProductDto } from './dto/approve-product.dto';
 import { PaginationDto } from './dto/pagination.dto';
 import { Public } from '../auth/public.decorator';
 import { Roles } from '../auth/roles.decorator';
@@ -26,8 +29,8 @@ export class ProductsController {
 
   @Public()
   @Get()
-  getProducts(@Query() dto: PaginationDto) {
-    return this.productsService.getProducts(dto);
+  getProducts(@Query() dto: PaginationDto, @CurrentUser() user?: JwtPayload) {
+    return this.productsService.getProducts(dto, user);
   }
 
   @Public()
@@ -38,46 +41,69 @@ export class ProductsController {
 
   @Public()
   @Get(':id')
-  getById(@Param('id') id: string) {
-    return this.productsService.getById(id);
+  async getById(@Param('id') id: string, @CurrentUser() user?: JwtPayload) {
+    const product = await this.productsService.getById(id);
+    // Unapproved products are only visible to the owner or an admin; to anyone
+    // else the product does not exist.
+    if (!product.approved) {
+      const isAdmin = user?.type === UserType.ADMIN;
+      const isOwner = !!user && product.userId === user.sub;
+      if (!isAdmin && !isOwner) {
+        throw new NotFoundException('Product not found');
+      }
+    }
+    return product;
   }
 
   @Post()
-  create(@Body() dto: ProductDto, @CurrentUser() user: JwtPayload) {
+  create(@Body() dto: CreateProductDto, @CurrentUser() user: JwtPayload) {
     return this.productsService.create({
       ...dto,
-      userId: dto.userId ?? user.sub,
-      userDisplayName: dto.userDisplayName ?? user.displayName,
-      userPhoto: dto.userPhoto ?? null,
+      userId: user.sub,
+      userDisplayName: user.displayName,
+      userPhoto: null,
     });
   }
 
   @Patch('batch')
   batchUpdate(
-    @Query('userId') userId: string,
     @Body() patch: UpdateProductDto,
+    @CurrentUser() user: JwtPayload,
+    @Query('userId') legacyUserId?: string,
   ) {
-    return this.productsService.batchUpdateByUserId(userId, patch as any);
+    // The old contract accepted ?userId= to target any vendor; reject a
+    // foreign target loudly rather than silently patching the caller's rows.
+    if (legacyUserId !== undefined && legacyUserId !== user.sub) {
+      throw new BadRequestException(
+        'The userId query parameter is no longer supported; batch update applies to your own products',
+      );
+    }
+    return this.productsService.batchUpdateByUserId(user.sub, patch);
   }
 
   @Patch(':id/approve')
   @UseGuards(RolesGuard)
   @Roles(UserType.ADMIN)
-  approve(@Param('id') id: string, @Body('approved') approved: boolean) {
-    return this.productsService.approve(id, approved !== false);
+  approve(@Param('id') id: string, @Body() dto: ApproveProductDto) {
+    return this.productsService.approve(id, dto.approved);
   }
 
   @Patch(':id/availability')
   setAvailability(
     @Param('id') id: string,
     @Body('availability') availability: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.productsService.setAvailability(id, availability);
+    return this.productsService.setAvailability(id, availability, user);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateProductDto) {
-    return this.productsService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateProductDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.productsService.update(id, dto, user);
   }
 
   @Delete(':id')

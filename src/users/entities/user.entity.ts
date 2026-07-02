@@ -76,6 +76,9 @@ export class Users {
   verificationToken: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
+  verificationTokenExpiresAt: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
   verifiedAt: Date | null;
 
   @Column({ type: 'varchar', nullable: true })

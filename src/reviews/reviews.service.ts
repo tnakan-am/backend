@@ -42,25 +42,34 @@ export class ReviewsService {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    const review = await this.dataSource.transaction(async (em) => {
-      const saved = await em.save(
-        em.create(Review, {
-          productId: dto.productId,
-          orderId: dto.orderId,
-          userId,
-          userName: user.displayName,
-          userPhoto: dto.userPhoto ?? user.image ?? null,
-          stars: dto.stars,
-          comment: dto.comment,
-        }),
-      );
-      await em.update(
-        OrderProduct,
-        { id: orderProduct.id },
-        { reviewRef: saved.id },
-      );
-      return saved;
-    });
+    let review: Review;
+    try {
+      review = await this.dataSource.transaction(async (em) => {
+        const saved = await em.save(
+          em.create(Review, {
+            productId: dto.productId,
+            orderId: dto.orderId,
+            userId,
+            userName: user.displayName,
+            userPhoto: dto.userPhoto ?? user.image ?? null,
+            stars: dto.stars,
+            comment: dto.comment,
+          }),
+        );
+        await em.update(
+          OrderProduct,
+          { id: orderProduct.id },
+          { reviewRef: saved.id },
+        );
+        return saved;
+      });
+    } catch (error) {
+      // Unique-index race: another concurrent request reviewed this line first.
+      if ((error as { code?: string }).code === '23505') {
+        throw new BadRequestException('This order line is already reviewed');
+      }
+      throw error;
+    }
 
     await this.productsService.recomputeReviewAggregates(dto.productId);
     return review;

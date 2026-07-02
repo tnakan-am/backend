@@ -4,7 +4,19 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
 
+function assertProductionSecrets() {
+  const env = process.env.NODE_ENV;
+  if (env !== 'production' && env !== 'staging') return;
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret === 'DO_NOT_USE_THIS_VALUE_IN_PRODUCTION') {
+    throw new Error(
+      'JWT_SECRET must be set to a strong value in production/staging environments',
+    );
+  }
+}
+
 async function bootstrap() {
+  assertProductionSecrets();
   const app = await NestFactory.create(AppModule);
 
   app.use(

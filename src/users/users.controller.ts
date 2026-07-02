@@ -11,7 +11,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { UserService } from './users.service';
-import { UpdateUserDto } from './dto/update-user.dto';
+import { AdminUpdateUserDto, UpdateSelfDto } from './dto/update-user.dto';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -30,7 +30,7 @@ export class UserController {
   }
 
   @Patch('me')
-  async updateMe(@CurrentUser() user: JwtPayload, @Body() dto: UpdateUserDto) {
+  async updateMe(@CurrentUser() user: JwtPayload, @Body() dto: UpdateSelfDto) {
     return this.userService.update(user.sub, dto);
   }
 
@@ -84,7 +84,7 @@ export class UserController {
   @Patch(':id')
   @UseGuards(RolesGuard)
   @Roles(UserType.ADMIN)
-  async update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
+  async update(@Param('id') id: string, @Body() dto: AdminUpdateUserDto) {
     return this.userService.update(id, dto);
   }
 

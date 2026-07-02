@@ -13,15 +13,18 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { Users, UserType } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
+import { UpdateSelfDto } from './dto/update-user.dto';
 
 export type SafeUser = Omit<
   Users,
   | 'password'
   | 'verificationToken'
+  | 'verificationTokenExpiresAt'
   | 'passwordResetToken'
   | 'passwordResetExpiresAt'
 >;
+
+const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class UserService {
@@ -49,8 +52,11 @@ export class UserService {
         email: dto.email.toLowerCase(),
         password,
         verificationToken,
+        verificationTokenExpiresAt: new Date(
+          Date.now() + VERIFICATION_TOKEN_TTL_MS,
+        ),
         verified: false,
-        isTopSeller: dto.isTopSeller ?? false,
+        isTopSeller: false,
       });
 
       return await this.userRepository.save(entity);
@@ -95,7 +101,7 @@ export class UserService {
     return users.map((u) => this.toSafeUser(u));
   }
 
-  async update(id: string, dto: UpdateUserDto): Promise<SafeUser> {
+  async update(id: string, dto: UpdateSelfDto): Promise<SafeUser> {
     const user = await this.findById(id);
     const merged = this.userRepository.merge(user, dto);
     const saved = await this.userRepository.save(merged);
@@ -135,6 +141,9 @@ export class UserService {
     user.verified = false;
     user.verifiedAt = null;
     user.verificationToken = this.generateToken();
+    user.verificationTokenExpiresAt = new Date(
+      Date.now() + VERIFICATION_TOKEN_TTL_MS,
+    );
     const saved = await this.userRepository.save(user);
     return this.toSafeUser(saved);
   }
@@ -152,9 +161,16 @@ export class UserService {
     if (user.verified) {
       throw new BadRequestException('Email already verified');
     }
+    if (
+      !user.verificationTokenExpiresAt ||
+      user.verificationTokenExpiresAt.getTime() < Date.now()
+    ) {
+      throw new BadRequestException('Verification token has expired');
+    }
     user.verified = true;
     user.verifiedAt = new Date();
     user.verificationToken = null;
+    user.verificationTokenExpiresAt = null;
     return this.userRepository.save(user);
   }
 
@@ -164,6 +180,9 @@ export class UserService {
       throw new BadRequestException('Email already verified');
     }
     user.verificationToken = this.generateToken();
+    user.verificationTokenExpiresAt = new Date(
+      Date.now() + VERIFICATION_TOKEN_TTL_MS,
+    );
     return this.userRepository.save(user);
   }
 
@@ -198,6 +217,7 @@ export class UserService {
     const {
       password: _p,
       verificationToken: _v,
+      verificationTokenExpiresAt: _ve,
       passwordResetToken: _r,
       passwordResetExpiresAt: _e,
       ...rest
