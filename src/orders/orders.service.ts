@@ -73,7 +73,11 @@ export class OrdersService {
           if (Number(item.quantity) > avail) {
             throw new BadRequestException(`Insufficient stock for "${p.name}"`);
           }
-          p.availability = String(avail - Number(item.quantity));
+          // Round to the quantity column's scale (numeric(12,3)) so fractional
+          // units don't persist floating-point noise into the string column.
+          p.availability = String(
+            Number((avail - Number(item.quantity)).toFixed(3)),
+          );
           await em.save(p);
         }
 

@@ -26,12 +26,27 @@ export class AuthGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
+    const request = context.switchToHttp().getRequest<Request>();
+    const token = extractBearerToken(request.headers.authorization);
+
     if (isPublic) {
+      // Public routes allow anonymous access, but if a valid token is present
+      // we still attach the user so handlers can widen behaviour for the
+      // owner/admin (e.g. showing their own unapproved products). An
+      // absent/invalid token is simply treated as anonymous.
+      if (token) {
+        try {
+          (request as any).user = await this.jwtService.verifyAsync<JwtPayload>(
+            token,
+            { secret: jwtConstants.secret },
+          );
+        } catch {
+          /* ignore — treat as anonymous */
+        }
+      }
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<Request>();
-    const token = extractBearerToken(request.headers.authorization);
     if (!token) {
       this.logger.warn(`Unauthorized — no token: ${request.url}`);
       throw new UnauthorizedException();

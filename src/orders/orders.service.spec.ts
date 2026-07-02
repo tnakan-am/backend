@@ -252,6 +252,18 @@ describe('OrdersService.createForUser stock enforcement', () => {
     expect(productSave![0].availability).toBe('6');
   });
 
+  it('rounds a fractional decrement to 3 decimals without float noise', async () => {
+    em.find.mockResolvedValue([product('10.1')]);
+    await service.createForUser('buyer', {
+      items: [{ productId: 'p1', quantity: 4.7 }],
+      address: {},
+    } as never);
+    const productSave = em.save.mock.calls.find(
+      (c) => c[0] && c[0].id === 'p1',
+    );
+    expect(productSave![0].availability).toBe('5.4');
+  });
+
   it('does not touch unlimited availability', async () => {
     em.find.mockResolvedValue([product('unlimited')]);
     await service.createForUser('buyer', {

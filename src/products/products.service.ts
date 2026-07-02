@@ -30,7 +30,10 @@ export class ProductsService {
     private readonly productRepository: Repository<Product>,
   ) {}
 
-  async getProducts(dto: PaginationDto): Promise<PaginatedResult<Product>> {
+  async getProducts(
+    dto: PaginationDto,
+    viewer?: JwtPayload,
+  ): Promise<PaginatedResult<Product>> {
     const {
       page = 1,
       limit = 20,
@@ -41,13 +44,26 @@ export class ProductsService {
       subCategory,
       productCategory,
       userId,
+      approved,
     } = dto;
 
     const qb: SelectQueryBuilder<Product> =
       this.productRepository.createQueryBuilder('p');
 
-    // Public listing: only approved products are ever exposed here.
-    qb.andWhere('p.approved = true');
+    // Unapproved products are only visible to an admin (moderation queue) or to
+    // a vendor scoping the query to their own listings. Everyone else — including
+    // anonymous callers — only ever sees approved products.
+    const isAdmin = viewer?.type === UserType.ADMIN;
+    const isOwnScope = !!viewer && !!userId && userId === viewer.sub;
+    if (isAdmin || isOwnScope) {
+      if (approved !== undefined) {
+        qb.andWhere('p.approved = :approved', {
+          approved: approved === 'true',
+        });
+      }
+    } else {
+      qb.andWhere('p.approved = true');
+    }
     if (userId) qb.andWhere('p.userId = :userId', { userId });
     if (category) qb.andWhere('p.category = :category', { category });
     if (subCategory)

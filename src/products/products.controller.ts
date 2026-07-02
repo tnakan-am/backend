@@ -28,8 +28,8 @@ export class ProductsController {
 
   @Public()
   @Get()
-  getProducts(@Query() dto: PaginationDto) {
-    return this.productsService.getProducts(dto);
+  getProducts(@Query() dto: PaginationDto, @CurrentUser() user?: JwtPayload) {
+    return this.productsService.getProducts(dto, user);
   }
 
   @Public()
@@ -40,10 +40,17 @@ export class ProductsController {
 
   @Public()
   @Get(':id')
-  async getById(@Param('id') id: string) {
+  async getById(@Param('id') id: string, @CurrentUser() user?: JwtPayload) {
     const product = await this.productsService.getById(id);
-    // Public detail endpoint never exposes unapproved products.
-    if (!product.approved) throw new NotFoundException('Product not found');
+    // Unapproved products are only visible to the owner or an admin; to anyone
+    // else the product does not exist.
+    if (!product.approved) {
+      const isAdmin = user?.type === UserType.ADMIN;
+      const isOwner = !!user && product.userId === user.sub;
+      if (!isAdmin && !isOwner) {
+        throw new NotFoundException('Product not found');
+      }
+    }
     return product;
   }
 
