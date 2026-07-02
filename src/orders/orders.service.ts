@@ -43,65 +43,89 @@ export class OrdersService {
 
   async createForUser(userId: string, dto: CreateOrderDto): Promise<Order> {
     const productIds = dto.items.map((i) => i.productId);
-    const products = await this.productRepository.find({
-      where: { id: In(productIds) },
-    });
-    if (products.length !== productIds.length) {
-      throw new BadRequestException('One or more products were not found');
-    }
 
     const buyer = await this.userRepository.findOne({ where: { id: userId } });
     if (!buyer) throw new NotFoundException('Buyer not found');
 
-    const productsById = new Map(products.map((p) => [p.id, p]));
-    const vendorIds = Array.from(new Set(products.map((p) => p.userId)));
-    const total = dto.items.reduce((sum, item) => {
-      const p = productsById.get(item.productId)!;
-      return sum + Number(p.price) * Number(item.quantity);
-    }, 0);
-
-    const created = await this.dataSource.transaction(async (em) => {
-      const order = em.create(Order, {
-        userId,
-        userPhone: dto.userPhone ?? buyer.phoneNumber ?? '',
-        address: dto.address,
-        status: OrderStatus.pending,
-        total,
-        vendorIds,
-        productIds: products.map((p) => p.id),
-        paidAt: new Date(),
-      });
-      const savedOrder = await em.save(order);
-
-      const orderProducts = dto.items.map((item) => {
-        const p = productsById.get(item.productId)!;
-        return em.create(OrderProduct, {
-          orderId: savedOrder.id,
-          productId: p.id,
-          vendorId: p.userId,
-          name: p.name,
-          unit: p.unit,
-          price: p.price,
-          image: p.image,
-          description: p.description,
-          quantity: item.quantity,
-          status: OrderStatus.pending,
-          comment: item.comment ?? null,
+    const { created, products } = await this.dataSource.transaction(
+      async (em) => {
+        // Lock the product rows so the stock check-and-decrement below is
+        // atomic against concurrent orders (SELECT ... FOR UPDATE).
+        const locked = await em.find(Product, {
+          where: { id: In(productIds) },
+          lock: { mode: 'pessimistic_write' },
         });
-      });
-      await em.save(orderProducts);
+        if (locked.length !== productIds.length) {
+          throw new BadRequestException('One or more products were not found');
+        }
+        const productsById = new Map(locked.map((p) => [p.id, p]));
 
-      await em.save(
-        em.create(OrderStatusHistory, {
-          orderId: savedOrder.id,
+        // Enforce and decrement finite availability ('unlimited' is skipped).
+        for (const item of dto.items) {
+          const p = productsById.get(item.productId)!;
+          if (p.availability === 'unlimited') continue;
+          const avail = Number(p.availability);
+          if (!Number.isFinite(avail)) {
+            throw new BadRequestException(
+              `Product "${p.name}" has invalid availability`,
+            );
+          }
+          if (Number(item.quantity) > avail) {
+            throw new BadRequestException(`Insufficient stock for "${p.name}"`);
+          }
+          p.availability = String(avail - Number(item.quantity));
+          await em.save(p);
+        }
+
+        const vendorIds = Array.from(new Set(locked.map((p) => p.userId)));
+        const total = dto.items.reduce((sum, item) => {
+          const p = productsById.get(item.productId)!;
+          return sum + Number(p.price) * Number(item.quantity);
+        }, 0);
+
+        const order = em.create(Order, {
           userId,
+          userPhone: dto.userPhone ?? buyer.phoneNumber ?? '',
+          address: dto.address,
           status: OrderStatus.pending,
-        }),
-      );
-      return savedOrder;
-    });
+          total,
+          vendorIds,
+          productIds: locked.map((p) => p.id),
+          paidAt: new Date(),
+        });
+        const savedOrder = await em.save(order);
+
+        const orderProducts = dto.items.map((item) => {
+          const p = productsById.get(item.productId)!;
+          return em.create(OrderProduct, {
+            orderId: savedOrder.id,
+            productId: p.id,
+            vendorId: p.userId,
+            name: p.name,
+            unit: p.unit,
+            price: p.price,
+            image: p.image,
+            description: p.description,
+            quantity: item.quantity,
+            status: OrderStatus.pending,
+            comment: item.comment ?? null,
+          });
+        });
+        await em.save(orderProducts);
+
+        await em.save(
+          em.create(OrderStatusHistory, {
+            orderId: savedOrder.id,
+            userId,
+            status: OrderStatus.pending,
+          }),
+        );
+        return { created: savedOrder, products: locked };
+      },
+    );
 
     // Notify every vendor (out-of-tx so they only get the event if commit succeeded).
+    const vendorIds = Array.from(new Set(products.map((p) => p.userId)));
     for (const vendorId of vendorIds) {
       const vendorProductIds = products
         .filter((p) => p.userId === vendorId)
@@ -146,6 +170,31 @@ export class OrdersService {
     }
   }
 
+  /**
+   * Restricts which order statuses each role may set: admins may set any;
+   * vendors may advance to processing/delivered; the customer (owner) may only
+   * acknowledge with 'seen'. `pending` is set by the system at order creation.
+   */
+  private assertCanSetOrderStatus(
+    order: Order,
+    user: JwtPayload,
+    status: OrderStatus,
+  ): void {
+    if (user.type === UserType.ADMIN) return;
+    const isVendor = order.vendorIds.includes(user.sub);
+    if (isVendor) {
+      if (
+        status === OrderStatus.processing ||
+        status === OrderStatus.delivered
+      ) {
+        return;
+      }
+      throw new ForbiddenException('Vendors cannot set this order status');
+    }
+    if (order.userId === user.sub && status === OrderStatus.seen) return;
+    throw new ForbiddenException('You cannot set this order status');
+  }
+
   async listForCustomer(userId: string): Promise<Order[]> {
     return this.orderRepository.find({
       where: { userId },
@@ -186,6 +235,7 @@ export class OrdersService {
   ): Promise<Order> {
     const order = await this.getById(orderId);
     this.assertCanAccess(order, user);
+    this.assertCanSetOrderStatus(order, user, status);
     order.status = status;
     await this.orderRepository.save(order);
     await this.statusHistoryRepository.save(

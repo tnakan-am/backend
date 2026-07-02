@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { UserService } from './users.service';
@@ -62,6 +62,52 @@ describe('UserService', () => {
       expect(repo.save).toHaveBeenCalled();
       const saved = repo.save.mock.calls[0][0];
       expect(saved.password).not.toBe(hash);
+    });
+  });
+
+  describe('verifyEmail', () => {
+    it('rejects an expired verification token', async () => {
+      repo.findOne.mockResolvedValue({
+        id: '1',
+        verified: false,
+        verificationToken: 'vt',
+        verificationTokenExpiresAt: new Date(Date.now() - 1000),
+      } as Users);
+
+      await expect(service.verifyEmail('vt')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects a token with no expiry recorded', async () => {
+      repo.findOne.mockResolvedValue({
+        id: '1',
+        verified: false,
+        verificationToken: 'vt',
+        verificationTokenExpiresAt: null,
+      } as Users);
+
+      await expect(service.verifyEmail('vt')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('verifies and clears the token when not expired', async () => {
+      repo.findOne.mockResolvedValue({
+        id: '1',
+        verified: false,
+        verificationToken: 'vt',
+        verificationTokenExpiresAt: new Date(Date.now() + 60_000),
+      } as Users);
+      repo.save.mockImplementation((u) => u);
+
+      await service.verifyEmail('vt');
+      const saved = repo.save.mock.calls[0][0];
+      expect(saved.verified).toBe(true);
+      expect(saved.verificationToken).toBeNull();
+      expect(saved.verificationTokenExpiresAt).toBeNull();
     });
   });
 });

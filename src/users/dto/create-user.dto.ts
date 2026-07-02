@@ -5,7 +5,6 @@ import {
   MinLength,
   IsIn,
   IsOptional,
-  IsBoolean,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -62,10 +61,6 @@ export class CreateUserDto {
   @IsString()
   @IsOptional()
   image?: string;
-
-  @IsBoolean()
-  @IsOptional()
-  isTopSeller?: boolean;
 
   @IsOptional()
   @ValidateNested()

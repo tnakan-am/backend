@@ -10,6 +10,8 @@ import {
 @Index(['productId'])
 @Index(['orderId'])
 @Index(['userId'])
+// One review per purchased order line; DB safety net behind the app-level guard.
+@Index(['orderId', 'productId'], { unique: true })
 export class Review {
   @PrimaryGeneratedColumn('uuid')
   id: string;
