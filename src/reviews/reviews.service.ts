@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Review } from './entities/review.entity';
 import { OrderProduct } from '../orders/entities/order-product.entity';
+import { OrderStatus } from '../orders/order-status.enum';
 import { Users } from '../users/entities/user.entity';
 import { ProductsService } from '../products/products.service';
 import { CreateReviewDto } from './dto/create-review.dto';
@@ -34,6 +35,11 @@ export class ReviewsService {
     }
     if (orderProduct.order.userId !== userId) {
       throw new BadRequestException('You can only review your own orders');
+    }
+    if (orderProduct.status !== OrderStatus.delivered) {
+      throw new BadRequestException(
+        'You can only review items that have been delivered',
+      );
     }
     if (orderProduct.reviewRef) {
       throw new BadRequestException('This order line is already reviewed');

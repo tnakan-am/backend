@@ -4,9 +4,9 @@ import {
   IsEnum,
   IsNumber,
   IsOptional,
+  IsPositive,
   IsString,
   IsUUID,
-  Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -18,7 +18,7 @@ export class OrderItemDto {
   productId: string;
 
   @IsNumber()
-  @Min(0)
+  @IsPositive()
   quantity: number;
 
   @IsString()

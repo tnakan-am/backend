@@ -42,7 +42,9 @@ export class OrdersService {
   ) {}
 
   async createForUser(userId: string, dto: CreateOrderDto): Promise<Order> {
-    const productIds = dto.items.map((i) => i.productId);
+    // The same product may appear in more than one line item; dedupe before the
+    // lock so the existence check counts distinct products, not line items.
+    const productIds = Array.from(new Set(dto.items.map((i) => i.productId)));
 
     const buyer = await this.userRepository.findOne({ where: { id: userId } });
     if (!buyer) throw new NotFoundException('Buyer not found');
@@ -70,6 +72,7 @@ export class OrdersService {
         const productsById = new Map(locked.map((p) => [p.id, p]));
 
         // Enforce and decrement finite availability ('unlimited' is skipped).
+        const decremented = new Set<Product>();
         for (const item of dto.items) {
           const p = productsById.get(item.productId)!;
           if (p.availability === 'unlimited') continue;
@@ -87,8 +90,11 @@ export class OrdersService {
           p.availability = String(
             Number((avail - Number(item.quantity)).toFixed(3)),
           );
-          await em.save(p);
+          decremented.add(p);
         }
+        // Persist all stock changes in one round-trip to shorten the time the
+        // pessimistic row locks are held.
+        if (decremented.size) await em.save([...decremented]);
 
         const vendorIds = Array.from(new Set(locked.map((p) => p.userId)));
         const total = dto.items.reduce((sum, item) => {
@@ -137,18 +143,22 @@ export class OrdersService {
       },
     );
 
-    // Notify every vendor (out-of-tx so they only get the event if commit succeeded).
+    // Notify every vendor (out-of-tx so they only get the event if commit
+    // succeeded). The per-vendor inserts are independent, so run them together.
     const vendorIds = Array.from(new Set(products.map((p) => p.userId)));
-    for (const vendorId of vendorIds) {
-      const vendorProductIds = products
-        .filter((p) => p.userId === vendorId)
-        .map((p) => p.id);
-      const notification = await this.notificationsService.create({
-        userId: vendorId,
-        orderId: created.id,
-        productIds: vendorProductIds,
-        status: OrderStatus.pending,
-      });
+    const notifications = await Promise.all(
+      vendorIds.map((vendorId) =>
+        this.notificationsService.create({
+          userId: vendorId,
+          orderId: created.id,
+          productIds: products
+            .filter((p) => p.userId === vendorId)
+            .map((p) => p.id),
+          status: OrderStatus.pending,
+        }),
+      ),
+    );
+    for (const notification of notifications) {
       this.notificationsGateway.emitNew(notification);
     }
 
@@ -227,18 +237,30 @@ export class OrdersService {
     throw new ForbiddenException('You cannot set this order status');
   }
 
-  private assertCanSetOrderStatus(
-    order: Order,
-    user: JwtPayload,
-    status: OrderStatus,
-  ): void {
-    this.assertCanSetStatus({
-      current: order.status,
-      next: status,
-      isAdmin: user.type === UserType.ADMIN,
-      isVendor: order.vendorIds.includes(user.sub),
-      isOwner: order.userId === user.sub,
-    });
+  /**
+   * The order-level status is derived from its line items: delivered only once
+   * every line is delivered, processing once any line has started, else
+   * pending. This keeps one vendor from marking another vendor's items done.
+   */
+  private deriveOrderStatus(lines: OrderProduct[]): OrderStatus {
+    if (lines.length === 0) return OrderStatus.pending;
+    if (lines.every((l) => l.status === OrderStatus.delivered)) {
+      return OrderStatus.delivered;
+    }
+    const anyStarted = lines.some(
+      (l) =>
+        OrdersService.STATUS_RANK[l.status] >=
+        OrdersService.STATUS_RANK[OrderStatus.processing],
+    );
+    return anyStarted ? OrderStatus.processing : OrderStatus.pending;
+  }
+
+  /** A single vendor's aggregate status across only the lines they own. */
+  private deriveVendorStatus(
+    lines: OrderProduct[],
+    vendorId: string,
+  ): OrderStatus {
+    return this.deriveOrderStatus(lines.filter((l) => l.vendorId === vendorId));
   }
 
   async listForCustomer(userId: string): Promise<Order[]> {
@@ -281,25 +303,71 @@ export class OrdersService {
   ): Promise<Order> {
     const order = await this.getById(orderId);
     this.assertCanAccess(order, user);
-    this.assertCanSetOrderStatus(order, user, status);
+
+    const isAdmin = user.type === UserType.ADMIN;
+    const isOwner = order.userId === user.sub;
+
     // 'seen' is a customer acknowledgement, not a fulfillment state: leave the
     // order, its history, and the vendors' notifications untouched.
-    if (status === OrderStatus.seen) return order;
-    order.status = status;
-    await this.orderRepository.save(order);
-    await this.statusHistoryRepository.save(
-      this.statusHistoryRepository.create({
+    if (status === OrderStatus.seen) {
+      if (!isOwner) {
+        throw new ForbiddenException(
+          'Only the customer can acknowledge with seen',
+        );
+      }
+      return order;
+    }
+
+    const isVendor = order.vendorIds.includes(user.sub);
+    if (!isAdmin && !isVendor) {
+      throw new ForbiddenException('You cannot set this order status');
+    }
+
+    // An admin acts on the whole order; a vendor only on the lines they own, so
+    // one vendor can never advance another vendor's items.
+    const lines = order.products ?? [];
+    const targetLines = isAdmin
+      ? lines
+      : lines.filter((l) => l.vendorId === user.sub);
+    for (const line of targetLines) {
+      this.assertCanSetStatus({
+        current: line.status,
+        next: status,
+        isAdmin,
+        isVendor: line.vendorId === user.sub,
+        isOwner,
+      });
+    }
+    for (const line of targetLines) line.status = status;
+    if (targetLines.length) {
+      await this.orderProductRepository.save(targetLines);
+    }
+
+    await this.applyDerivedOrderStatus(order, lines, user.sub);
+
+    if (isAdmin) {
+      await this.notificationsService.updateStatusByOrder(
         orderId,
-        userId: user.sub,
-        status,
-      }),
-    );
-    await this.notificationsService.updateStatusByOrder(orderId, status);
-    for (const vendorId of order.vendorIds) {
-      this.notificationsGateway.emitStatus(vendorId, {
+        order.status,
+      );
+      for (const vendorId of order.vendorIds) {
+        this.notificationsGateway.emitStatus(vendorId, {
+          id: orderId,
+          orderId,
+          status: order.status,
+        });
+      }
+    } else {
+      const vendorStatus = this.deriveVendorStatus(lines, user.sub);
+      await this.notificationsService.updateStatusByOrderVendor(
+        orderId,
+        user.sub,
+        vendorStatus,
+      );
+      this.notificationsGateway.emitStatus(user.sub, {
         id: orderId,
         orderId,
-        status,
+        status: vendorStatus,
       });
     }
     return this.getById(orderId);
@@ -311,23 +379,59 @@ export class OrdersService {
     user: JwtPayload,
     status: OrderStatus,
   ): Promise<OrderProduct> {
-    const orderProduct = await this.orderProductRepository.findOne({
-      where: { orderId, productId },
-    });
-    if (!orderProduct) throw new NotFoundException('Order item not found');
-
     const order = await this.getById(orderId);
     this.assertCanAccess(order, user);
+    const lines = order.products ?? [];
+    const line = lines.find((l) => l.productId === productId);
+    if (!line) throw new NotFoundException('Order item not found');
+
     this.assertCanSetStatus({
-      current: orderProduct.status,
+      current: line.status,
       next: status,
       isAdmin: user.type === UserType.ADMIN,
-      isVendor: orderProduct.vendorId === user.sub,
+      isVendor: line.vendorId === user.sub,
       isOwner: order.userId === user.sub,
     });
-    if (status === OrderStatus.seen) return orderProduct;
+    if (status === OrderStatus.seen) return line;
 
-    orderProduct.status = status;
-    return this.orderProductRepository.save(orderProduct);
+    line.status = status;
+    await this.orderProductRepository.save(line);
+
+    await this.applyDerivedOrderStatus(order, lines, user.sub);
+
+    const vendorStatus = this.deriveVendorStatus(lines, line.vendorId);
+    await this.notificationsService.updateStatusByOrderVendor(
+      orderId,
+      line.vendorId,
+      vendorStatus,
+    );
+    this.notificationsGateway.emitStatus(line.vendorId, {
+      id: orderId,
+      orderId,
+      status: vendorStatus,
+    });
+    return line;
+  }
+
+  /**
+   * Recompute the order-level status from its lines and, when it actually
+   * changed, persist it and append a history entry attributed to the actor.
+   */
+  private async applyDerivedOrderStatus(
+    order: Order,
+    lines: OrderProduct[],
+    actorId: string,
+  ): Promise<void> {
+    const derived = this.deriveOrderStatus(lines);
+    if (derived === order.status) return;
+    order.status = derived;
+    await this.orderRepository.save(order);
+    await this.statusHistoryRepository.save(
+      this.statusHistoryRepository.create({
+        orderId: order.id,
+        userId: actorId,
+        status: derived,
+      }),
+    );
   }
 }

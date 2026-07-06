@@ -70,10 +70,6 @@ export class UserService {
     }
   }
 
-  findRaw(id: string): Promise<Users | null> {
-    return this.userRepository.findOne({ where: { id } });
-  }
-
   async findById(id: string): Promise<Users> {
     const user = await this.userRepository.findOne({ where: { id } });
     if (!user) throw new NotFoundException('User not found');

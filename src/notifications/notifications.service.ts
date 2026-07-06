@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Notification } from './entities/notification.entity';
-import { OrderStatus } from '../orders/entities/order.entity';
+import { OrderStatus } from '../orders/order-status.enum';
 
 @Injectable()
 export class NotificationsService {
@@ -50,8 +50,11 @@ export class NotificationsService {
     return this.repo.update({ orderId }, { status });
   }
 
-  findByOrderIds(orderIds: string[]): Promise<Notification[]> {
-    if (orderIds.length === 0) return Promise.resolve([]);
-    return this.repo.find({ where: { orderId: In(orderIds) } });
+  updateStatusByOrderVendor(
+    orderId: string,
+    vendorId: string,
+    status: OrderStatus,
+  ): Promise<unknown> {
+    return this.repo.update({ orderId, userId: vendorId }, { status });
   }
 }

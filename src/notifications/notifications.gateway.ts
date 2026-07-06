@@ -10,7 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import { jwtConstants } from '../auth/constants';
 import { JwtPayload } from '../auth/jwt-payload.interface';
 import { Notification } from './entities/notification.entity';
-import { OrderStatus } from '../orders/entities/order.entity';
+import { OrderStatus } from '../orders/order-status.enum';
 
 const corsOrigin = (process.env.CORS_ORIGIN || 'http://localhost:4200')
   .split(',')

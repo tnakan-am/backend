@@ -27,7 +27,12 @@ const AppDataSource = new DataSource({
         password: process.env.DB_PASSWORD || 'postgres',
         database: process.env.DB_NAME || 'homemade',
       }),
-  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+  // Validate the DB server certificate by default; set DB_SSL_INSECURE=true to
+  // skip validation for hosts using self-signed certs (mirrors app.module.ts).
+  ssl:
+    process.env.DB_SSL === 'true'
+      ? { rejectUnauthorized: process.env.DB_SSL_INSECURE !== 'true' }
+      : false,
   entities: [
     Users,
     Product,

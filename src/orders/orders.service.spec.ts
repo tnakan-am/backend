@@ -20,12 +20,28 @@ const OWNER = 'owner-uuid';
 const VENDOR = 'vendor-uuid';
 const STRANGER = 'stranger-uuid';
 
-function makeOrder(): Order {
+function lineFor(
+  vendorId: string,
+  status = OrderStatus.pending,
+  productId = 'p1',
+): OrderProduct {
+  return {
+    id: `line-${productId}`,
+    orderId: 'order-uuid',
+    productId,
+    vendorId,
+    status,
+  } as OrderProduct;
+}
+
+function makeOrder(overrides: Partial<Order> = {}): Order {
   return {
     id: 'order-uuid',
     userId: OWNER,
     vendorIds: [VENDOR],
     status: OrderStatus.pending,
+    products: [lineFor(VENDOR)],
+    ...overrides,
   } as Order;
 }
 
@@ -38,7 +54,10 @@ describe('OrdersService access control', () => {
   let orderRepo: { findOne: jest.Mock; save: jest.Mock };
   let orderProductRepo: { findOne: jest.Mock; save: jest.Mock };
   let statusHistoryRepo: { create: jest.Mock; save: jest.Mock };
-  let notifications: { updateStatusByOrder: jest.Mock };
+  let notifications: {
+    updateStatusByOrder: jest.Mock;
+    updateStatusByOrderVendor: jest.Mock;
+  };
   let gateway: { emitStatus: jest.Mock };
 
   beforeEach(async () => {
@@ -48,7 +67,10 @@ describe('OrdersService access control', () => {
       create: jest.fn((v) => v),
       save: jest.fn(),
     };
-    notifications = { updateStatusByOrder: jest.fn() };
+    notifications = {
+      updateStatusByOrder: jest.fn(),
+      updateStatusByOrderVendor: jest.fn(),
+    };
     gateway = { emitStatus: jest.fn() };
 
     const moduleRef = await Test.createTestingModule({
@@ -122,10 +144,11 @@ describe('OrdersService access control', () => {
         ),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(orderRepo.save).not.toHaveBeenCalled();
-      expect(notifications.updateStatusByOrder).not.toHaveBeenCalled();
+      expect(orderProductRepo.save).not.toHaveBeenCalled();
+      expect(notifications.updateStatusByOrderVendor).not.toHaveBeenCalled();
     });
 
-    it('lets a vendor update and emits to vendors', async () => {
+    it('lets a vendor advance only their own lines and derives the order status', async () => {
       orderRepo.findOne.mockResolvedValue(makeOrder());
       orderRepo.save.mockResolvedValue(makeOrder());
       await service.updateOrderStatus(
@@ -133,12 +156,45 @@ describe('OrdersService access control', () => {
         jwt(VENDOR, UserType.BUSINESS),
         OrderStatus.processing,
       );
+      expect(orderProductRepo.save).toHaveBeenCalled();
       expect(orderRepo.save).toHaveBeenCalled();
       expect(statusHistoryRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({ userId: VENDOR, status: 'processing' }),
       );
+      expect(notifications.updateStatusByOrderVendor).toHaveBeenCalledWith(
+        'order-uuid',
+        VENDOR,
+        OrderStatus.processing,
+      );
       expect(gateway.emitStatus).toHaveBeenCalledWith(
         VENDOR,
+        expect.objectContaining({ status: 'processing' }),
+      );
+    });
+
+    it('does not let one vendor advance another vendor’s items', async () => {
+      const other = 'other-vendor';
+      orderRepo.findOne.mockResolvedValue(
+        makeOrder({
+          vendorIds: [VENDOR, other],
+          products: [
+            lineFor(VENDOR, OrderStatus.pending, 'p1'),
+            lineFor(other, OrderStatus.pending, 'p2'),
+          ],
+        }),
+      );
+      orderRepo.save.mockResolvedValue(makeOrder());
+      await service.updateOrderStatus(
+        'order-uuid',
+        jwt(VENDOR, UserType.BUSINESS),
+        OrderStatus.delivered,
+      );
+      // Only this vendor's single line was saved; the whole order is not
+      // delivered because the other vendor's line is still pending.
+      const savedLines = orderProductRepo.save.mock.calls[0][0];
+      expect(savedLines).toHaveLength(1);
+      expect(savedLines[0].vendorId).toBe(VENDOR);
+      expect(statusHistoryRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'processing' }),
       );
     });
@@ -156,10 +212,9 @@ describe('OrdersService access control', () => {
     });
 
     it('acknowledges seen without touching status, history, or notifications', async () => {
-      orderRepo.findOne.mockResolvedValue({
-        ...makeOrder(),
-        status: OrderStatus.delivered,
-      } as Order);
+      orderRepo.findOne.mockResolvedValue(
+        makeOrder({ status: OrderStatus.delivered }),
+      );
       const result = await service.updateOrderStatus(
         'order-uuid',
         jwt(OWNER, UserType.CUSTOMER),
@@ -167,8 +222,9 @@ describe('OrdersService access control', () => {
       );
       expect(result.status).toBe(OrderStatus.delivered);
       expect(orderRepo.save).not.toHaveBeenCalled();
+      expect(orderProductRepo.save).not.toHaveBeenCalled();
       expect(statusHistoryRepo.save).not.toHaveBeenCalled();
-      expect(notifications.updateStatusByOrder).not.toHaveBeenCalled();
+      expect(notifications.updateStatusByOrderVendor).not.toHaveBeenCalled();
     });
 
     it('forbids a vendor from setting seen', async () => {
@@ -195,11 +251,13 @@ describe('OrdersService access control', () => {
       expect(orderRepo.save).not.toHaveBeenCalled();
     });
 
-    it('forbids a vendor from regressing delivered back to processing', async () => {
-      orderRepo.findOne.mockResolvedValue({
-        ...makeOrder(),
-        status: OrderStatus.delivered,
-      } as Order);
+    it('forbids a vendor from regressing a delivered line to processing', async () => {
+      orderRepo.findOne.mockResolvedValue(
+        makeOrder({
+          status: OrderStatus.delivered,
+          products: [lineFor(VENDOR, OrderStatus.delivered)],
+        }),
+      );
       await expect(
         service.updateOrderStatus(
           'order-uuid',
@@ -208,17 +266,15 @@ describe('OrdersService access control', () => {
         ),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(orderRepo.save).not.toHaveBeenCalled();
+      expect(orderProductRepo.save).not.toHaveBeenCalled();
     });
   });
 
   describe('updateOrderProductStatus', () => {
-    function makeLine(status = OrderStatus.pending) {
-      return { id: 'line-1', orderId: 'order-uuid', vendorId: VENDOR, status };
-    }
-
     it('lets the vendor advance their line to processing', async () => {
-      orderProductRepo.findOne.mockResolvedValue(makeLine());
-      orderRepo.findOne.mockResolvedValue(makeOrder());
+      orderRepo.findOne.mockResolvedValue(
+        makeOrder({ products: [lineFor(VENDOR, OrderStatus.pending)] }),
+      );
       const line = await service.updateOrderProductStatus(
         'order-uuid',
         'p1',
@@ -227,13 +283,31 @@ describe('OrdersService access control', () => {
       );
       expect(line.status).toBe(OrderStatus.processing);
       expect(orderProductRepo.save).toHaveBeenCalled();
+      expect(notifications.updateStatusByOrderVendor).toHaveBeenCalledWith(
+        'order-uuid',
+        VENDOR,
+        OrderStatus.processing,
+      );
+    });
+
+    it('throws NotFound when the line is not on the order', async () => {
+      orderRepo.findOne.mockResolvedValue(
+        makeOrder({ products: [lineFor(VENDOR, OrderStatus.pending)] }),
+      );
+      await expect(
+        service.updateOrderProductStatus(
+          'order-uuid',
+          'missing-product',
+          jwt(VENDOR, UserType.BUSINESS),
+          OrderStatus.processing,
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it('forbids the vendor from regressing a delivered line', async () => {
-      orderProductRepo.findOne.mockResolvedValue(
-        makeLine(OrderStatus.delivered),
+      orderRepo.findOne.mockResolvedValue(
+        makeOrder({ products: [lineFor(VENDOR, OrderStatus.delivered)] }),
       );
-      orderRepo.findOne.mockResolvedValue(makeOrder());
       await expect(
         service.updateOrderProductStatus(
           'order-uuid',
@@ -246,8 +320,9 @@ describe('OrdersService access control', () => {
     });
 
     it('forbids the vendor from setting seen on their line', async () => {
-      orderProductRepo.findOne.mockResolvedValue(makeLine());
-      orderRepo.findOne.mockResolvedValue(makeOrder());
+      orderRepo.findOne.mockResolvedValue(
+        makeOrder({ products: [lineFor(VENDOR, OrderStatus.pending)] }),
+      );
       await expect(
         service.updateOrderProductStatus(
           'order-uuid',
@@ -260,10 +335,9 @@ describe('OrdersService access control', () => {
     });
 
     it('acknowledges owner seen without overwriting the line status', async () => {
-      orderProductRepo.findOne.mockResolvedValue(
-        makeLine(OrderStatus.delivered),
+      orderRepo.findOne.mockResolvedValue(
+        makeOrder({ products: [lineFor(VENDOR, OrderStatus.delivered)] }),
       );
-      orderRepo.findOne.mockResolvedValue(makeOrder());
       const line = await service.updateOrderProductStatus(
         'order-uuid',
         'p1',
@@ -330,6 +404,14 @@ describe('OrdersService.createForUser stock enforcement', () => {
     };
   }
 
+  // Stock is now persisted in a single batched em.save([...]); flatten so the
+  // saved product is found whether the argument is an array or a lone entity.
+  function savedProduct(id: string) {
+    return em.save.mock.calls
+      .flatMap((c) => (Array.isArray(c[0]) ? c[0] : [c[0]]))
+      .find((v) => v && v.id === id);
+  }
+
   it('rejects an order containing an unapproved product', async () => {
     em.find.mockResolvedValue([{ ...product('10'), approved: false }]);
     await expect(
@@ -358,11 +440,9 @@ describe('OrdersService.createForUser stock enforcement', () => {
       items: [{ productId: 'p1', quantity: 4 }],
       address: {},
     } as never);
-    const productSave = em.save.mock.calls.find(
-      (c) => c[0] && c[0].id === 'p1',
-    );
-    expect(productSave).toBeDefined();
-    expect(productSave![0].availability).toBe('6');
+    const saved = savedProduct('p1');
+    expect(saved).toBeDefined();
+    expect(saved.availability).toBe('6');
   });
 
   it('rounds a fractional decrement to 3 decimals without float noise', async () => {
@@ -371,10 +451,7 @@ describe('OrdersService.createForUser stock enforcement', () => {
       items: [{ productId: 'p1', quantity: 4.7 }],
       address: {},
     } as never);
-    const productSave = em.save.mock.calls.find(
-      (c) => c[0] && c[0].id === 'p1',
-    );
-    expect(productSave![0].availability).toBe('5.4');
+    expect(savedProduct('p1').availability).toBe('5.4');
   });
 
   it('does not touch unlimited availability', async () => {
@@ -383,9 +460,6 @@ describe('OrdersService.createForUser stock enforcement', () => {
       items: [{ productId: 'p1', quantity: 999 }],
       address: {},
     } as never);
-    const productSave = em.save.mock.calls.find(
-      (c) => c[0] && c[0].id === 'p1',
-    );
-    expect(productSave).toBeUndefined();
+    expect(savedProduct('p1')).toBeUndefined();
   });
 });
