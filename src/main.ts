@@ -5,12 +5,14 @@ import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
 
 function assertProductionSecrets() {
-  const env = process.env.NODE_ENV;
-  if (env !== 'production' && env !== 'staging') return;
+  // Fail closed: only local development is allowed to fall back to the built-in
+  // placeholder secret. An unset or unexpected NODE_ENV must still require a
+  // real JWT_SECRET so a misconfigured deploy can never sign with the default.
+  if (process.env.NODE_ENV === 'development') return;
   const secret = process.env.JWT_SECRET;
   if (!secret || secret === 'DO_NOT_USE_THIS_VALUE_IN_PRODUCTION') {
     throw new Error(
-      'JWT_SECRET must be set to a strong value in production/staging environments',
+      'JWT_SECRET must be set to a strong value outside local development',
     );
   }
 }

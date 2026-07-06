@@ -115,6 +115,17 @@ export class ProductsService {
     return product;
   }
 
+  /**
+   * Unapproved (moderation-pending) products are only visible to an admin or
+   * to the vendor who owns them; to everyone else they do not exist.
+   */
+  canView(product: Product, viewer?: JwtPayload): boolean {
+    if (product.approved) return true;
+    const isAdmin = viewer?.type === UserType.ADMIN;
+    const isOwner = !!viewer && product.userId === viewer.sub;
+    return isAdmin || isOwner;
+  }
+
   async create(dto: ProductDto): Promise<Product> {
     const entity = this.productRepository.create({
       ...dto,

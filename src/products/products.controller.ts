@@ -36,21 +36,20 @@ export class ProductsController {
   @Public()
   @Get('top')
   getTop(@Query('limit') limit?: string) {
-    return this.productsService.getTopProducts(limit ? +limit : 10);
+    // Coerce and clamp: a non-numeric or non-positive ?limit falls back to the
+    // default rather than passing NaN into the query's LIMIT clause.
+    const parsed = Math.floor(Number(limit));
+    const take =
+      Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 100) : 10;
+    return this.productsService.getTopProducts(take);
   }
 
   @Public()
   @Get(':id')
   async getById(@Param('id') id: string, @CurrentUser() user?: JwtPayload) {
     const product = await this.productsService.getById(id);
-    // Unapproved products are only visible to the owner or an admin; to anyone
-    // else the product does not exist.
-    if (!product.approved) {
-      const isAdmin = user?.type === UserType.ADMIN;
-      const isOwner = !!user && product.userId === user.sub;
-      if (!isAdmin && !isOwner) {
-        throw new NotFoundException('Product not found');
-      }
+    if (!this.productsService.canView(product, user)) {
+      throw new NotFoundException('Product not found');
     }
     return product;
   }

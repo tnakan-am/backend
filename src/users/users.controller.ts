@@ -9,6 +9,7 @@ import {
   HttpException,
   HttpStatus,
   Post,
+  ForbiddenException,
 } from '@nestjs/common';
 import { UserService } from './users.service';
 import { AdminUpdateUserDto, UpdateSelfDto } from './dto/update-user.dto';
@@ -72,7 +73,10 @@ export class UserController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
+  async findOne(@Param('id') id: string, @CurrentUser() requester: JwtPayload) {
+    if (requester.sub !== id && requester.type !== UserType.ADMIN) {
+      throw new ForbiddenException('You cannot access this user');
+    }
     try {
       const user = await this.userService.findById(id);
       return this.userService.toSafeUser(user);

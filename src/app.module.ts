@@ -45,8 +45,13 @@ import { NotificationsModule } from './notifications/notifications.module';
             password: process.env.DB_PASSWORD || 'postgres',
             database: process.env.DB_NAME || 'homemade',
           }),
+      // Validate the DB server certificate by default; only skip validation
+      // when DB_SSL_INSECURE=true (e.g. hosts with self-signed certs). Leaving
+      // it off silently would allow a man-in-the-middle on the DB connection.
       ssl:
-        process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+        process.env.DB_SSL === 'true'
+          ? { rejectUnauthorized: process.env.DB_SSL_INSECURE !== 'true' }
+          : false,
       entities: [
         Users,
         Product,
