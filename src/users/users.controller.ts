@@ -6,13 +6,12 @@ import {
   Body,
   Delete,
   UseGuards,
-  HttpException,
-  HttpStatus,
   Post,
   ForbiddenException,
 } from '@nestjs/common';
 import { UserService } from './users.service';
 import { AdminUpdateUserDto, UpdateSelfDto } from './dto/update-user.dto';
+import { Public } from '../auth/public.decorator';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -72,17 +71,22 @@ export class UserController {
     return this.userService.findAll();
   }
 
+  @Public()
   @Get(':id')
-  async findOne(@Param('id') id: string, @CurrentUser() requester: JwtPayload) {
-    if (requester.sub !== id && requester.type !== UserType.ADMIN) {
+  async findOne(
+    @Param('id') id: string,
+    @CurrentUser() requester?: JwtPayload,
+  ) {
+    const user = await this.userService.findById(id);
+    // Business profiles are public storefronts, visible to anyone including
+    // anonymous visitors; customers' profiles are private to themselves and
+    // admins.
+    const isSelf = requester?.sub === id;
+    const isAdmin = requester?.type === UserType.ADMIN;
+    if (!isSelf && !isAdmin && user.type !== UserType.BUSINESS) {
       throw new ForbiddenException('You cannot access this user');
     }
-    try {
-      const user = await this.userService.findById(id);
-      return this.userService.toSafeUser(user);
-    } catch (error) {
-      throw new HttpException((error as Error).message, HttpStatus.BAD_REQUEST);
-    }
+    return this.userService.toSafeUser(user);
   }
 
   @Patch(':id')
