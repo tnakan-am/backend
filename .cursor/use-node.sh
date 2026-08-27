@@ -1,6 +1,9 @@
-# Select the Node version pinned in .nvmrc (20) via nvm.
-# Sourced by the install/start scripts and dev-server terminal so that the
-# nvm-managed Node wins over any node earlier in PATH.
+# Load nvm and select the Node toolchain for this repo.
+#
+# The Cloud Agent base image ships `node` on PATH via /exec-daemon but no `npm`,
+# so scripts must load nvm to get a working `npm`/`npx`. We select the version
+# pinned in .nvmrc (20); note that /exec-daemon's `node` may still take PATH
+# precedence at runtime (Node 22), which this app fully supports.
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 # shellcheck disable=SC1091
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
