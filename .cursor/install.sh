@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Repository bootstrap for Cloud Agents. Idempotent: safe to re-run.
+# Self-contained: installs the system dependencies (PostgreSQL) so the
+# environment is reproducible from the default base image without a snapshot.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -8,6 +10,15 @@ REPO_ROOT="$(pwd)"
 # shellcheck source=.cursor/use-node.sh
 source "$REPO_ROOT/.cursor/use-node.sh"
 echo "Using Node $(node -v) / npm $(npm -v)"
+
+# Install PostgreSQL once (the app's only system dependency). Skipped when the
+# server binaries are already present, so re-runs are cheap.
+if ! command -v pg_ctlcluster >/dev/null 2>&1; then
+  echo "Installing PostgreSQL..."
+  sudo apt-get update -y
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    postgresql postgresql-contrib
+fi
 
 # Install dependencies from the committed lockfile.
 npm ci

@@ -10,14 +10,14 @@ REPO_ROOT="$(pwd)"
 # shellcheck source=.cursor/use-node.sh
 source "$REPO_ROOT/.cursor/use-node.sh"
 
-PG_VERSION=16
-PG_CLUSTER=main
 DB_NAME=homemade
 DB_USER=postgres
 DB_PASS=postgres
 
 # 1. Start the PostgreSQL cluster if it is not already accepting connections.
+#    The version/cluster are detected so this is not tied to a specific release.
 if ! pg_isready -h 127.0.0.1 -p 5432 -q; then
+  read -r PG_VERSION PG_CLUSTER < <(pg_lsclusters -h | awk 'NR==1 {print $1, $2}')
   echo "Starting PostgreSQL ${PG_VERSION}/${PG_CLUSTER}..."
   sudo pg_ctlcluster "${PG_VERSION}" "${PG_CLUSTER}" start
   for _ in $(seq 1 30); do
