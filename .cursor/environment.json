@@ -1,0 +1,13 @@
+{
+  "name": "homemade backend (NestJS + PostgreSQL)",
+  "install": ".cursor/install.sh",
+  "start": ".cursor/start.sh",
+  "terminals": [
+    {
+      "name": "api",
+      "command": "source .cursor/use-node.sh && npm run start:dev",
+      "description": "NestJS API in watch mode on http://localhost:3000 (development mode: schema synchronized from entities)."
+    }
+  ],
+  "ports": [{ "name": "api", "port": 3000 }]
+}
