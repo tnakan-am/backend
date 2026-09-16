@@ -34,7 +34,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
     TypeOrmModule.forRoot({
       type: 'postgres',
-      // Prefer DATABASE_URL (injected by managed hosts like Fly Postgres);
+      // Prefer DATABASE_URL (a managed host's connection string, e.g. Neon);
       // fall back to discrete DB_* vars for local development.
       ...(process.env.DATABASE_URL
         ? { url: process.env.DATABASE_URL }
