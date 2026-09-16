@@ -17,7 +17,6 @@ notifications (Socket.IO), and image uploads.
 | **Production** | https://backend-20ts.onrender.com | Neon Postgres (Frankfurt) | https://tnakan-23490.web.app | ✅ Live |
 | **PR previews** (frontend only) | uses the production API | uses the production DB | `https://tnakan-23490--<channel>.web.app` | ✅ Created per frontend PR |
 | **Local** | http://localhost:3000 | Postgres in Docker, `localhost:5433` | http://localhost:4200 | Run on your machine |
-| Fly.io dev / staging / prod | `homemade-dev.fly.dev`, `homemade-staging.fly.dev`, `homemade-prod.fly.dev` | — | — | ⚠️ Configured, not provisioned |
 
 Health check for any running API: `GET /health` → `{"status":"ok"}`
 (e.g. https://backend-20ts.onrender.com/health).
@@ -72,19 +71,6 @@ anything you create there is real data.
 > The frontend dev server proxies `/api`, `/socket.io` and `/uploads` to the **production** API
 > (see `proxy.conf.json` in the frontend repo). To develop against your local API, change the proxy
 > targets to `http://localhost:3000`.
-
-### Fly.io (not provisioned)
-
-`fly.dev.toml`, `fly.staging.toml`, `fly.prod.toml` and the `deploy-dev`, `deploy-staging` and
-`deploy-prod` workflows target the Fly apps `homemade-dev`, `homemade-staging` and `homemade-prod`.
-Those apps are not running, so the **Deploy (staging)** workflow fails after each push to `main`.
-Production does not depend on them.
-
-| Workflow | Trigger | Target |
-| --- | --- | --- |
-| Deploy (dev) | CI success on `develop` | `homemade-dev.fly.dev` |
-| Deploy (staging) | CI success on `main` | `homemade-staging.fly.dev` |
-| Deploy (prod) | tag `v*.*.*` | `homemade-prod.fly.dev` |
 
 ## Local development
 
