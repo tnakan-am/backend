@@ -9,12 +9,18 @@ import { EmailService } from '../email/email.service';
 
 describe('UserService', () => {
   let service: UserService;
-  let repo: { findOne: jest.Mock; save: jest.Mock; merge: jest.Mock };
+  let repo: {
+    find: jest.Mock;
+    findOne: jest.Mock;
+    save: jest.Mock;
+    merge: jest.Mock;
+  };
   let productRepo: { update: jest.Mock };
   let email: { sendVerificationEmail: jest.Mock };
 
   beforeEach(async () => {
     repo = {
+      find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn(),
       save: jest.fn(),
       merge: jest.fn((a, b) => ({ ...a, ...b })),
@@ -74,6 +80,16 @@ describe('UserService', () => {
       expect(repo.save).toHaveBeenCalled();
       const saved = repo.save.mock.calls[0][0];
       expect(saved.password).not.toBe(hash);
+    });
+  });
+
+  describe('findBusinesses', () => {
+    it('selects display fields only, no contact or tax data', async () => {
+      await service.findBusinesses();
+      const { select } = repo.find.mock.calls[0][0];
+      expect(Object.keys(select).sort()).toEqual(
+        ['company', 'displayName', 'id', 'image', 'isTopSeller'].sort(),
+      );
     });
   });
 

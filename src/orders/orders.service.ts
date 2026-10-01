@@ -194,13 +194,27 @@ export class OrdersService {
     return this.scopeToVendor(order, user.sub);
   }
 
-  // The stored total spans every vendor; recompute it from the kept lines.
+  /**
+   * Narrows a loaded order to what one vendor may see: their own lines, their
+   * share of the total and their own status. Other vendors' products,
+   * identities and status transitions are removed.
+   */
   private scopeToVendor(order: Order, vendorId: string): Order {
     order.products = order.products.filter((l) => l.vendorId === vendorId);
+    order.productIds = [...new Set(order.products.map((l) => l.productId))];
+    order.vendorIds = [vendorId];
+    order.status = this.deriveOrderStatus(order.products);
     order.total = order.products.reduce(
       (sum, line) => sum + line.price * line.quantity,
       0,
     );
+    // History rows are order-wide; keep only the customer's (order placed)
+    // and this vendor's own transitions.
+    if (order.statusHistory) {
+      order.statusHistory = order.statusHistory.filter(
+        (h) => h.userId === vendorId || h.userId === order.userId,
+      );
+    }
     return order;
   }
 

@@ -25,6 +25,11 @@ export type SafeUser = Omit<
   | 'passwordResetExpiresAt'
 >;
 
+export type PublicBusiness = Pick<
+  Users,
+  'id' | 'displayName' | 'image' | 'company' | 'isTopSeller'
+>;
+
 const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
@@ -89,11 +94,21 @@ export class UserService {
     return user;
   }
 
-  async findBusinesses(): Promise<SafeUser[]> {
-    const users = await this.userRepository.find({
+  /**
+   * Public storefront directory, open to anonymous visitors: display fields
+   * only, so contact details and tax ids (hvhh) can't be harvested in bulk.
+   */
+  async findBusinesses(): Promise<PublicBusiness[]> {
+    return this.userRepository.find({
       where: { type: UserType.BUSINESS },
+      select: {
+        id: true,
+        displayName: true,
+        image: true,
+        company: true,
+        isTopSeller: true,
+      },
     });
-    return users.map((u) => this.toSafeUser(u));
   }
 
   async findAll(): Promise<SafeUser[]> {

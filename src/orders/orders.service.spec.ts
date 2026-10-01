@@ -126,10 +126,13 @@ describe('OrdersService access control', () => {
       ).resolves.toMatchObject({ id: 'order-uuid' });
     });
 
-    it('shows a vendor only their own lines and share of the total', async () => {
+    it('shows a vendor only their own part of the order', async () => {
+      const other = 'other-vendor';
       orderRepo.findOne.mockResolvedValue(
         makeOrder({
-          vendorIds: [VENDOR, 'other-vendor'],
+          vendorIds: [VENDOR, other],
+          productIds: ['p1', 'p2'],
+          status: OrderStatus.processing,
           total: 500,
           products: [
             {
@@ -138,11 +141,15 @@ describe('OrdersService access control', () => {
               quantity: 2,
             },
             {
-              ...lineFor('other-vendor', OrderStatus.pending, 'p2'),
+              ...lineFor(other, OrderStatus.processing, 'p2'),
               price: 300,
               quantity: 1,
             },
           ],
+          statusHistory: [
+            { userId: OWNER, status: OrderStatus.pending },
+            { userId: other, status: OrderStatus.processing },
+          ] as OrderStatusHistory[],
         }),
       );
       const order = await service.getByIdForUser(
@@ -151,6 +158,10 @@ describe('OrdersService access control', () => {
       );
       expect(order.products.map((l) => l.productId)).toEqual(['p1']);
       expect(order.total).toBe(200);
+      expect(order.productIds).toEqual(['p1']);
+      expect(order.vendorIds).toEqual([VENDOR]);
+      expect(order.status).toBe(OrderStatus.pending);
+      expect(order.statusHistory.map((h) => h.userId)).toEqual([OWNER]);
     });
 
     it('shows the customer the whole order', async () => {
