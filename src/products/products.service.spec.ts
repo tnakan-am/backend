@@ -23,6 +23,7 @@ describe('ProductsService', () => {
     save: jest.Mock;
     merge: jest.Mock;
     update: jest.Mock;
+    delete: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -32,6 +33,7 @@ describe('ProductsService', () => {
       save: jest.fn((v) => v),
       merge: jest.fn((a, b) => ({ ...a, ...b })),
       update: jest.fn().mockResolvedValue({ affected: 1 }),
+      delete: jest.fn().mockResolvedValue({ affected: 1 }),
     };
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -113,6 +115,39 @@ describe('ProductsService', () => {
         jwt('someadmin', UserType.ADMIN),
       );
       expect(repo.save).toHaveBeenCalled();
+    });
+  });
+
+  describe('delete authorization', () => {
+    it('rejects a non-owner non-admin', async () => {
+      repo.findOne.mockResolvedValue({ id: 'p1', userId: 'owner' } as Product);
+      await expect(
+        service.delete('p1', jwt('stranger', UserType.BUSINESS)),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.delete).not.toHaveBeenCalled();
+    });
+
+    it('allows the owner', async () => {
+      repo.findOne.mockResolvedValue({ id: 'p1', userId: 'owner' } as Product);
+      await expect(
+        service.delete('p1', jwt('owner', UserType.BUSINESS)),
+      ).resolves.toEqual({ success: true });
+      expect(repo.delete).toHaveBeenCalledWith('p1');
+    });
+
+    it('allows an admin', async () => {
+      repo.findOne.mockResolvedValue({ id: 'p1', userId: 'owner' } as Product);
+      await expect(
+        service.delete('p1', jwt('someadmin', UserType.ADMIN)),
+      ).resolves.toEqual({ success: true });
+    });
+
+    it('throws NotFound for a missing product', async () => {
+      repo.findOne.mockResolvedValue(null);
+      await expect(
+        service.delete('missing', jwt('owner', UserType.BUSINESS)),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(repo.delete).not.toHaveBeenCalled();
     });
   });
 

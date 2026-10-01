@@ -1,6 +1,26 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 
+const VERIFICATION_COPY = {
+  register: {
+    subject: 'Verify Your Email Address',
+    heading: 'Email Verification',
+    body: 'Thank you for registering! Click the button below to verify your email address. This link will expire in 24 hours.',
+  },
+  resend: {
+    subject: 'Verify Your Email Address',
+    heading: 'Email Verification',
+    body: 'Click the button below to verify your email address. This link will expire in 24 hours.',
+  },
+  emailChange: {
+    subject: 'Verify Your New Email Address',
+    heading: 'Email Change Verification',
+    body: 'You changed your account email to this address. Click the button below to verify it. This link will expire in 24 hours.',
+  },
+};
+
+export type VerificationReason = keyof typeof VERIFICATION_COPY;
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -26,14 +46,16 @@ export class EmailService {
     this.transporter = nodemailer.createTransport(config);
   }
 
-  async sendVerificationEmail(email: string, token: string): Promise<void> {
+  async sendVerificationEmail(
+    email: string,
+    token: string,
+    reason: VerificationReason,
+  ): Promise<void> {
     const baseUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
     const url = `${baseUrl}/verify-email?token=${token}`;
     await this.send({
       to: email,
-      subject: 'Verify Your Email Address',
-      heading: 'Email Verification',
-      body: `Thank you for registering! Click the button below to verify your email address. This link will expire in 24 hours.`,
+      ...VERIFICATION_COPY[reason],
       ctaText: 'Verify Email Address',
       ctaUrl: url,
     });

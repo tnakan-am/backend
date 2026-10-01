@@ -59,7 +59,7 @@ export class ReviewsService {
             userName: user.displayName,
             userPhoto: dto.userPhoto ?? user.image ?? null,
             stars: dto.stars,
-            comment: dto.comment,
+            comment: dto.comment ?? '',
           }),
         );
         await em.update(

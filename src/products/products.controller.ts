@@ -22,10 +22,14 @@ import { RolesGuard } from '../auth/roles.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtPayload } from '../auth/jwt-payload.interface';
 import { UserType } from '../users/entities/user.entity';
+import { UserService } from '../users/users.service';
 
 @Controller('products')
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(
+    private readonly productsService: ProductsService,
+    private readonly userService: UserService,
+  ) {}
 
   @Public()
   @Get()
@@ -55,12 +59,13 @@ export class ProductsController {
   }
 
   @Post()
-  create(@Body() dto: CreateProductDto, @CurrentUser() user: JwtPayload) {
+  async create(@Body() dto: CreateProductDto, @CurrentUser() user: JwtPayload) {
+    const vendor = await this.userService.findById(user.sub);
     return this.productsService.create({
       ...dto,
       userId: user.sub,
-      userDisplayName: user.displayName,
-      userPhoto: null,
+      userDisplayName: vendor.displayName,
+      userPhoto: vendor.image ?? null,
     });
   }
 
@@ -106,9 +111,7 @@ export class ProductsController {
   }
 
   @Delete(':id')
-  @UseGuards(RolesGuard)
-  @Roles(UserType.ADMIN)
-  delete(@Param('id') id: string) {
-    return this.productsService.delete(id);
+  delete(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.productsService.delete(id, user);
   }
 }

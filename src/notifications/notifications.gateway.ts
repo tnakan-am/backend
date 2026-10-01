@@ -10,7 +10,6 @@ import { JwtService } from '@nestjs/jwt';
 import { jwtConstants } from '../auth/constants';
 import { JwtPayload } from '../auth/jwt-payload.interface';
 import { Notification } from './entities/notification.entity';
-import { OrderStatus } from '../orders/order-status.enum';
 
 const corsOrigin = (process.env.CORS_ORIGIN || 'http://localhost:4200')
   .split(',')
@@ -64,11 +63,12 @@ export class NotificationsGateway
       .emit('notification:new', notification);
   }
 
-  emitStatus(
-    userId: string,
-    payload: { id: string; orderId: string; status: OrderStatus },
-  ): void {
-    this.server.to(`user:${userId}`).emit('notification:status', payload);
+  emitStatus(notification: Notification): void {
+    this.server.to(`user:${notification.userId}`).emit('notification:status', {
+      id: notification.id,
+      orderId: notification.orderId,
+      status: notification.status,
+    });
   }
 
   private fromAuthHeader(authorization?: string): string | undefined {

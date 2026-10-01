@@ -181,6 +181,37 @@ export class OrdersService {
   async getByIdForUser(id: string, user: JwtPayload): Promise<Order> {
     const order = await this.getById(id);
     this.assertCanAccess(order, user);
+    return this.visibleTo(order, user);
+  }
+
+  /**
+   * The customer and admins see the whole order; a vendor sees only their own
+   * lines and their share of the total, never other vendors' items.
+   */
+  private visibleTo(order: Order, user: JwtPayload): Order {
+    const isAdmin = user.type === UserType.ADMIN;
+    if (isAdmin || order.userId === user.sub) return order;
+    return this.scopeToVendor(order, user.sub);
+  }
+
+  /**
+   * Narrows a loaded order to what one vendor may see: their own lines, their
+   * share of the total and their own status. Other vendors' products,
+   * identities and status transitions are removed.
+   */
+  private scopeToVendor(order: Order, vendorId: string): Order {
+    order.products = order.products.filter((l) => l.vendorId === vendorId);
+    order.productIds = [...new Set(order.products.map((l) => l.productId))];
+    order.vendorIds = [vendorId];
+    order.status = this.deriveOrderStatus(order.products);
+    order.total = order.products.reduce(
+      (sum, line) => sum + line.price * line.quantity,
+      0,
+    );
+    // History rows record the order-wide status, which other vendors' lines
+    // also drive, so no row is a faithful timeline of this vendor's status.
+    // The timeline is for the customer and admins only.
+    if (order.statusHistory) order.statusHistory = [];
     return order;
   }
 
@@ -194,37 +225,29 @@ export class OrdersService {
   }
 
   // Fulfillment progression used to forbid regressions (e.g. delivered back
-  // to processing). 'seen' is an acknowledgement, not a fulfillment state.
+  // to processing). 'seen' is the vendor's acknowledgement of a new line.
   private static readonly STATUS_RANK: Record<OrderStatus, number> = {
     [OrderStatus.pending]: 0,
-    [OrderStatus.seen]: 0,
-    [OrderStatus.processing]: 1,
-    [OrderStatus.delivered]: 2,
+    [OrderStatus.seen]: 1,
+    [OrderStatus.processing]: 2,
+    [OrderStatus.delivered]: 3,
   };
 
   /**
-   * Shared status matrix for orders and order lines: only the customer
-   * (owner) may acknowledge with 'seen'; admins may set any fulfillment
-   * status; vendors may advance to processing/delivered but not regress.
-   * `pending` is set by the system at order creation.
+   * Shared status matrix for orders and order lines: admins may set any
+   * status; vendors may advance their own lines through seen, processing and
+   * delivered but not regress. `pending` is set by the system at order creation.
    */
   private assertCanSetStatus(opts: {
     current: OrderStatus;
     next: OrderStatus;
     isAdmin: boolean;
     isVendor: boolean;
-    isOwner: boolean;
   }): void {
-    const { current, next, isAdmin, isVendor, isOwner } = opts;
-    if (next === OrderStatus.seen) {
-      if (isOwner) return;
-      throw new ForbiddenException(
-        'Only the customer can acknowledge with seen',
-      );
-    }
+    const { current, next, isAdmin, isVendor } = opts;
     if (isAdmin) return;
     if (isVendor) {
-      if (next !== OrderStatus.processing && next !== OrderStatus.delivered) {
+      if (next === OrderStatus.pending) {
         throw new ForbiddenException('Vendors cannot set this order status');
       }
       if (
@@ -239,8 +262,9 @@ export class OrdersService {
 
   /**
    * The order-level status is derived from its line items: delivered only once
-   * every line is delivered, processing once any line has started, else
-   * pending. This keeps one vendor from marking another vendor's items done.
+   * every line is delivered, processing once any line has started, seen once
+   * every line is acknowledged, else pending. This keeps one vendor from
+   * marking another vendor's items done.
    */
   private deriveOrderStatus(lines: OrderProduct[]): OrderStatus {
     if (lines.length === 0) return OrderStatus.pending;
@@ -252,7 +276,11 @@ export class OrdersService {
         OrdersService.STATUS_RANK[l.status] >=
         OrdersService.STATUS_RANK[OrderStatus.processing],
     );
-    return anyStarted ? OrderStatus.processing : OrderStatus.pending;
+    if (anyStarted) return OrderStatus.processing;
+    if (lines.every((l) => l.status === OrderStatus.seen)) {
+      return OrderStatus.seen;
+    }
+    return OrderStatus.pending;
   }
 
   /** A single vendor's aggregate status across only the lines they own. */
@@ -272,12 +300,14 @@ export class OrdersService {
   }
 
   async listForVendor(vendorId: string): Promise<Order[]> {
-    return this.orderRepository
+    // Only this vendor's lines are joined; other vendors' items stay private.
+    const orders = await this.orderRepository
       .createQueryBuilder('o')
-      .leftJoinAndSelect('o.products', 'p')
+      .leftJoinAndSelect('o.products', 'p', 'p.vendorId = :vendor')
       .where(':vendor = ANY(o."vendorIds")', { vendor: vendorId })
       .orderBy('o.createdAt', 'DESC')
       .getMany();
+    return orders.map((order) => this.scopeToVendor(order, vendorId));
   }
 
   async listForAdmin(startDate?: string, endDate?: string): Promise<Order[]> {
@@ -305,19 +335,6 @@ export class OrdersService {
     this.assertCanAccess(order, user);
 
     const isAdmin = user.type === UserType.ADMIN;
-    const isOwner = order.userId === user.sub;
-
-    // 'seen' is a customer acknowledgement, not a fulfillment state: leave the
-    // order, its history, and the vendors' notifications untouched.
-    if (status === OrderStatus.seen) {
-      if (!isOwner) {
-        throw new ForbiddenException(
-          'Only the customer can acknowledge with seen',
-        );
-      }
-      return order;
-    }
-
     const isVendor = order.vendorIds.includes(user.sub);
     if (!isAdmin && !isVendor) {
       throw new ForbiddenException('You cannot set this order status');
@@ -335,7 +352,6 @@ export class OrdersService {
         next: status,
         isAdmin,
         isVendor: line.vendorId === user.sub,
-        isOwner,
       });
     }
     for (const line of targetLines) line.status = status;
@@ -346,71 +362,68 @@ export class OrdersService {
     await this.applyDerivedOrderStatus(order, lines, user.sub);
 
     if (isAdmin) {
-      await this.notificationsService.updateStatusByOrder(
+      const notifications = await this.notificationsService.updateStatusByOrder(
         orderId,
         order.status,
       );
-      for (const vendorId of order.vendorIds) {
-        this.notificationsGateway.emitStatus(vendorId, {
-          id: orderId,
-          orderId,
-          status: order.status,
-        });
+      for (const notification of notifications) {
+        this.notificationsGateway.emitStatus(notification);
       }
     } else {
       const vendorStatus = this.deriveVendorStatus(lines, user.sub);
-      await this.notificationsService.updateStatusByOrderVendor(
-        orderId,
-        user.sub,
-        vendorStatus,
-      );
-      this.notificationsGateway.emitStatus(user.sub, {
-        id: orderId,
-        orderId,
-        status: vendorStatus,
-      });
+      const notification =
+        await this.notificationsService.updateStatusByOrderVendor(
+          orderId,
+          user.sub,
+          vendorStatus,
+        );
+      if (notification) this.notificationsGateway.emitStatus(notification);
     }
-    return this.getById(orderId);
+    return this.visibleTo(await this.getById(orderId), user);
   }
 
+  /**
+   * Sets the status of a product within an order. The same product may span
+   * several lines (see createForUser); they move together, matching reviews,
+   * which are also one per (order, product). All such lines share a vendor.
+   */
   async updateOrderProductStatus(
     orderId: string,
     productId: string,
     user: JwtPayload,
     status: OrderStatus,
-  ): Promise<OrderProduct> {
+  ): Promise<OrderProduct[]> {
     const order = await this.getById(orderId);
     this.assertCanAccess(order, user);
     const lines = order.products ?? [];
-    const line = lines.find((l) => l.productId === productId);
-    if (!line) throw new NotFoundException('Order item not found');
+    const targetLines = lines.filter((l) => l.productId === productId);
+    if (!targetLines.length) {
+      throw new NotFoundException('Order item not found');
+    }
+    const { vendorId } = targetLines[0];
 
-    this.assertCanSetStatus({
-      current: line.status,
-      next: status,
-      isAdmin: user.type === UserType.ADMIN,
-      isVendor: line.vendorId === user.sub,
-      isOwner: order.userId === user.sub,
-    });
-    if (status === OrderStatus.seen) return line;
-
-    line.status = status;
-    await this.orderProductRepository.save(line);
+    for (const line of targetLines) {
+      this.assertCanSetStatus({
+        current: line.status,
+        next: status,
+        isAdmin: user.type === UserType.ADMIN,
+        isVendor: vendorId === user.sub,
+      });
+    }
+    for (const line of targetLines) line.status = status;
+    await this.orderProductRepository.save(targetLines);
 
     await this.applyDerivedOrderStatus(order, lines, user.sub);
 
-    const vendorStatus = this.deriveVendorStatus(lines, line.vendorId);
-    await this.notificationsService.updateStatusByOrderVendor(
-      orderId,
-      line.vendorId,
-      vendorStatus,
-    );
-    this.notificationsGateway.emitStatus(line.vendorId, {
-      id: orderId,
-      orderId,
-      status: vendorStatus,
-    });
-    return line;
+    const vendorStatus = this.deriveVendorStatus(lines, vendorId);
+    const notification =
+      await this.notificationsService.updateStatusByOrderVendor(
+        orderId,
+        vendorId,
+        vendorStatus,
+      );
+    if (notification) this.notificationsGateway.emitStatus(notification);
+    return targetLines;
   }
 
   /**

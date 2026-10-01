@@ -46,15 +46,20 @@ export class NotificationsService {
     return this.repo.save(notification);
   }
 
-  updateStatusByOrder(orderId: string, status: OrderStatus): Promise<unknown> {
-    return this.repo.update({ orderId }, { status });
+  async updateStatusByOrder(
+    orderId: string,
+    status: OrderStatus,
+  ): Promise<Notification[]> {
+    await this.repo.update({ orderId }, { status });
+    return this.repo.find({ where: { orderId } });
   }
 
-  updateStatusByOrderVendor(
+  async updateStatusByOrderVendor(
     orderId: string,
     vendorId: string,
     status: OrderStatus,
-  ): Promise<unknown> {
-    return this.repo.update({ orderId, userId: vendorId }, { status });
+  ): Promise<Notification | null> {
+    await this.repo.update({ orderId, userId: vendorId }, { status });
+    return this.repo.findOne({ where: { orderId, userId: vendorId } });
   }
 }
