@@ -161,7 +161,7 @@ describe('OrdersService access control', () => {
       expect(order.productIds).toEqual(['p1']);
       expect(order.vendorIds).toEqual([VENDOR]);
       expect(order.status).toBe(OrderStatus.pending);
-      expect(order.statusHistory.map((h) => h.userId)).toEqual([OWNER]);
+      expect(order.statusHistory).toEqual([]);
     });
 
     it('shows the customer the whole order', async () => {

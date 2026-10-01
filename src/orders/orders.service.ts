@@ -208,13 +208,10 @@ export class OrdersService {
       (sum, line) => sum + line.price * line.quantity,
       0,
     );
-    // History rows are order-wide; keep only the customer's (order placed)
-    // and this vendor's own transitions.
-    if (order.statusHistory) {
-      order.statusHistory = order.statusHistory.filter(
-        (h) => h.userId === vendorId || h.userId === order.userId,
-      );
-    }
+    // History rows record the order-wide status, which other vendors' lines
+    // also drive, so no row is a faithful timeline of this vendor's status.
+    // The timeline is for the customer and admins only.
+    if (order.statusHistory) order.statusHistory = [];
     return order;
   }
 
