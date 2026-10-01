@@ -47,6 +47,7 @@ export class AuthController {
       await this.emailService.sendVerificationEmail(
         user.email,
         user.verificationToken!,
+        'register',
       );
     } catch (err) {
       this.logger.warn(`Verification email send failed for ${user.email}`, err);
@@ -82,6 +83,7 @@ export class AuthController {
       await this.emailService.sendVerificationEmail(
         user.email,
         user.verificationToken!,
+        'resend',
       );
     } catch (err) {
       this.logger.warn(`Verification resend failed for ${user.email}`, err);

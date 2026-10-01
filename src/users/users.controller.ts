@@ -59,6 +59,7 @@ export class UserController {
     );
   }
 
+  @Public()
   @Get('businesses')
   async listBusinesses() {
     return this.userService.findBusinesses();

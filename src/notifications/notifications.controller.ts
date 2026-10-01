@@ -44,11 +44,7 @@ export class NotificationsController {
       throw new ForbiddenException('You cannot modify this notification');
     }
     const updated = await this.service.updateStatus(id, dto.status);
-    this.gateway.emitStatus(user.sub, {
-      id: updated.id,
-      orderId: updated.orderId,
-      status: updated.status,
-    });
+    this.gateway.emitStatus(updated);
     return updated;
   }
 }

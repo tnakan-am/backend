@@ -1,8 +1,6 @@
 import {
   BadRequestException,
   ForbiddenException,
-  HttpException,
-  HttpStatus,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -145,11 +143,10 @@ export class ProductsService {
     return this.productRepository.save(merged);
   }
 
-  async delete(id: string): Promise<{ success: true }> {
-    const result = await this.productRepository.delete(id);
-    if (!result.affected) {
-      throw new HttpException('Product not found', HttpStatus.NOT_FOUND);
-    }
+  async delete(id: string, user: JwtPayload): Promise<{ success: true }> {
+    const product = await this.getById(id);
+    this.assertCanModify(product, user);
+    await this.productRepository.delete(id);
     return { success: true };
   }
 

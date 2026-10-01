@@ -1,20 +1,32 @@
 import { Test } from '@nestjs/testing';
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { UserService } from './users.service';
 import { Users, UserType } from './entities/user.entity';
+import { Product } from '../products/entities/product.entity';
+import { EmailService } from '../email/email.service';
 
 describe('UserService', () => {
   let service: UserService;
-  let repo: { findOne: jest.Mock; save: jest.Mock };
+  let repo: { findOne: jest.Mock; save: jest.Mock; merge: jest.Mock };
+  let productRepo: { update: jest.Mock };
+  let email: { sendVerificationEmail: jest.Mock };
 
   beforeEach(async () => {
-    repo = { findOne: jest.fn(), save: jest.fn() };
+    repo = {
+      findOne: jest.fn(),
+      save: jest.fn(),
+      merge: jest.fn((a, b) => ({ ...a, ...b })),
+    };
+    productRepo = { update: jest.fn() };
+    email = { sendVerificationEmail: jest.fn() };
     const moduleRef = await Test.createTestingModule({
       providers: [
         UserService,
         { provide: getRepositoryToken(Users), useValue: repo },
+        { provide: getRepositoryToken(Product), useValue: productRepo },
+        { provide: EmailService, useValue: email },
       ],
     }).compile();
     service = moduleRef.get(UserService);
@@ -49,7 +61,7 @@ describe('UserService', () => {
 
       await expect(
         service.changePassword('1', 'wrong', 'NewPassword1!'),
-      ).rejects.toBeInstanceOf(UnauthorizedException);
+      ).rejects.toBeInstanceOf(BadRequestException);
       expect(repo.save).not.toHaveBeenCalled();
     });
 
@@ -62,6 +74,79 @@ describe('UserService', () => {
       expect(repo.save).toHaveBeenCalled();
       const saved = repo.save.mock.calls[0][0];
       expect(saved.password).not.toBe(hash);
+    });
+  });
+
+  describe('update', () => {
+    it('syncs a new profile image onto the vendor’s products', async () => {
+      repo.findOne.mockResolvedValue({ id: '1' } as Users);
+      repo.save.mockImplementation((u) => u);
+
+      await service.update('1', { image: 'http://x/new.png' });
+      expect(productRepo.update).toHaveBeenCalledWith(
+        { userId: '1' },
+        { userPhoto: 'http://x/new.png' },
+      );
+    });
+
+    it('syncs a new display name onto the vendor’s products', async () => {
+      repo.findOne.mockResolvedValue({ id: '1' } as Users);
+      repo.save.mockImplementation((u) => u);
+
+      await service.update('1', { displayName: 'B' });
+      expect(productRepo.update).toHaveBeenCalledWith(
+        { userId: '1' },
+        { userDisplayName: 'B' },
+      );
+    });
+
+    it('leaves products alone when neither name nor image changes', async () => {
+      repo.findOne.mockResolvedValue({ id: '1' } as Users);
+      repo.save.mockImplementation((u) => u);
+
+      await service.update('1', { phoneNumber: '123' });
+      expect(productRepo.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('changeEmail', () => {
+    it('rejects an incorrect current password with 400, not 401', async () => {
+      const hash = await bcrypt.hash('correct', 10);
+      repo.findOne.mockResolvedValue({ id: '1', password: hash } as Users);
+
+      await expect(
+        service.changeEmail('1', 'wrong', 'new@b.com'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('sends a verification email to the new address', async () => {
+      const hash = await bcrypt.hash('correct', 10);
+      repo.findOne
+        .mockResolvedValueOnce({ id: '1', password: hash } as Users)
+        .mockResolvedValueOnce(null);
+      repo.save.mockImplementation((u) => u);
+
+      const safe = await service.changeEmail('1', 'correct', 'New@B.com');
+      expect(safe.verified).toBe(false);
+      expect(email.sendVerificationEmail).toHaveBeenCalledWith(
+        'new@b.com',
+        expect.any(String),
+        'emailChange',
+      );
+    });
+
+    it('still succeeds when the email send fails', async () => {
+      const hash = await bcrypt.hash('correct', 10);
+      repo.findOne
+        .mockResolvedValueOnce({ id: '1', password: hash } as Users)
+        .mockResolvedValueOnce(null);
+      repo.save.mockImplementation((u) => u);
+      email.sendVerificationEmail.mockRejectedValue(new Error('smtp down'));
+
+      await expect(
+        service.changeEmail('1', 'correct', 'new@b.com'),
+      ).resolves.toMatchObject({ email: 'new@b.com' });
     });
   });
 

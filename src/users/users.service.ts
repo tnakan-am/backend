@@ -4,7 +4,6 @@ import {
   NotFoundException,
   InternalServerErrorException,
   Logger,
-  UnauthorizedException,
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -14,6 +13,8 @@ import * as crypto from 'crypto';
 import { Users, UserType } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateSelfDto } from './dto/update-user.dto';
+import { Product } from '../products/entities/product.entity';
+import { EmailService } from '../email/email.service';
 
 export type SafeUser = Omit<
   Users,
@@ -33,6 +34,9 @@ export class UserService {
   constructor(
     @InjectRepository(Users)
     private readonly userRepository: Repository<Users>,
+    @InjectRepository(Product)
+    private readonly productRepository: Repository<Product>,
+    private readonly emailService: EmailService,
   ) {}
 
   async create(dto: CreateUserDto): Promise<Users> {
@@ -101,6 +105,16 @@ export class UserService {
     const user = await this.findById(id);
     const merged = this.userRepository.merge(user, dto);
     const saved = await this.userRepository.save(merged);
+    // Products denormalise the vendor's name and photo for cards; keep them
+    // in sync.
+    const productPatch: Partial<Product> = {};
+    if (dto.displayName !== undefined) {
+      productPatch.userDisplayName = dto.displayName;
+    }
+    if (dto.image !== undefined) productPatch.userPhoto = dto.image ?? null;
+    if (Object.keys(productPatch).length) {
+      await this.productRepository.update({ userId: id }, productPatch);
+    }
     return this.toSafeUser(saved);
   }
 
@@ -111,7 +125,7 @@ export class UserService {
   ): Promise<void> {
     const user = await this.findById(id);
     const ok = await bcrypt.compare(currentPassword, user.password);
-    if (!ok) throw new UnauthorizedException('Current password is incorrect');
+    if (!ok) throw new BadRequestException('Current password is incorrect');
     user.password = await this.hashPassword(newPassword);
     await this.userRepository.save(user);
   }
@@ -123,7 +137,7 @@ export class UserService {
   ): Promise<SafeUser> {
     const user = await this.findById(id);
     const ok = await bcrypt.compare(currentPassword, user.password);
-    if (!ok) throw new UnauthorizedException('Current password is incorrect');
+    if (!ok) throw new BadRequestException('Current password is incorrect');
 
     const lowered = newEmail.toLowerCase();
     const existing = await this.userRepository.findOne({
@@ -141,6 +155,20 @@ export class UserService {
       Date.now() + VERIFICATION_TOKEN_TTL_MS,
     );
     const saved = await this.userRepository.save(user);
+
+    try {
+      await this.emailService.sendVerificationEmail(
+        saved.email,
+        saved.verificationToken!,
+        'emailChange',
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Verification email send failed for ${saved.email}`,
+        err,
+      );
+    }
+
     return this.toSafeUser(saved);
   }
 
