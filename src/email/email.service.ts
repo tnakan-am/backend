@@ -74,6 +74,19 @@ export class EmailService {
     });
   }
 
+  async sendAdminInviteEmail(email: string, token: string): Promise<void> {
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
+    const url = `${baseUrl}/registration/${token}`;
+    await this.send({
+      to: email,
+      subject: 'You are invited as an administrator',
+      heading: 'Administrator Invitation',
+      body: 'You have been invited to create an administrator account. Click the button below to register with this email address. The link expires in 7 days.',
+      ctaText: 'Create Admin Account',
+      ctaUrl: url,
+    });
+  }
+
   private async send(opts: {
     to: string;
     subject: string;

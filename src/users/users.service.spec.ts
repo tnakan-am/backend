@@ -88,7 +88,7 @@ describe('UserService', () => {
       await service.findBusinesses();
       const { select } = repo.find.mock.calls[0][0];
       expect(Object.keys(select).sort()).toEqual(
-        ['company', 'displayName', 'id', 'image', 'isTopSeller'].sort(),
+        ['company', 'displayName', 'id', 'image', 'isTopSeller', 'name'].sort(),
       );
     });
   });

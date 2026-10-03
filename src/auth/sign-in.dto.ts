@@ -52,3 +52,9 @@ export class ResendVerificationDto {
   @IsNotEmpty()
   email: string;
 }
+
+export class AdminInviteDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+}

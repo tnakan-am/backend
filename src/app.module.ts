@@ -18,6 +18,7 @@ import { OrderProduct } from './orders/entities/order-product.entity';
 import { OrderStatusHistory } from './orders/entities/order-status-history.entity';
 import { Review } from './reviews/entities/review.entity';
 import { Notification } from './notifications/entities/notification.entity';
+import { Advertisement } from './ads/entities/advertisement.entity';
 
 import { UserModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
@@ -28,6 +29,7 @@ import { UploadsModule } from './uploads/uploads.module';
 import { OrdersModule } from './orders/orders.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { AdsModule } from './ads/ads.module';
 
 @Module({
   imports: [
@@ -63,6 +65,7 @@ import { NotificationsModule } from './notifications/notifications.module';
         OrderStatusHistory,
         Review,
         Notification,
+        Advertisement,
       ],
       // Local dev: synchronize entities directly for fast iteration.
       // Everywhere else (test/staging/prod): schema comes from migrations only,
@@ -85,6 +88,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     OrdersModule,
     ReviewsModule,
     NotificationsModule,
+    AdsModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],

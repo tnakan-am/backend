@@ -35,4 +35,13 @@ describe('CreateUserDto type restriction', () => {
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].property).toBe('type');
   });
+
+  it('skips the type check when an admin invite token is sent', async () => {
+    const dto = plainToInstance(CreateUserDto, {
+      ...base,
+      type: UserType.ADMIN,
+      inviteToken: 'signed.invite.token',
+    });
+    expect(await validate(dto)).toHaveLength(0);
+  });
 });
