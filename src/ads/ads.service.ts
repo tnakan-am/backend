@@ -67,6 +67,8 @@ export class AdsService {
     const existing = await this.getById(id);
     this.assertCanModify(existing, user);
     const merged = this.adRepository.merge(existing, dto);
+    // An owner's edit is unreviewed copy, so it goes back to moderation.
+    if (user.type !== UserType.ADMIN) merged.approved = false;
     return this.adRepository.save(merged);
   }
 

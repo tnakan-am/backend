@@ -70,14 +70,24 @@ describe('AdsService', () => {
     );
   });
 
-  it('lets the owner update their ad', async () => {
-    repo.findOne.mockResolvedValue({ id: 'a', userId: 'v1' });
+  it('sends an owner-edited approved ad back to moderation', async () => {
+    repo.findOne.mockResolvedValue({ id: 'a', userId: 'v1', approved: true });
     const ad = await service.update(
       'a',
       { headline: 'New' },
       jwt('v1', UserType.BUSINESS),
     );
-    expect(ad.headline).toBe('New');
+    expect(ad).toMatchObject({ headline: 'New', approved: false });
+  });
+
+  it('keeps approval when an admin edits', async () => {
+    repo.findOne.mockResolvedValue({ id: 'a', userId: 'v1', approved: true });
+    const ad = await service.update(
+      'a',
+      { headline: 'Fixed typo' },
+      jwt('admin', UserType.ADMIN),
+    );
+    expect(ad.approved).toBe(true);
   });
 
   it('forbids another vendor from updating or deleting', async () => {

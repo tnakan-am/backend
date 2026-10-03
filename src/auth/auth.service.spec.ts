@@ -4,74 +4,98 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { JwtModule, JwtService } from '@nestjs/jwt';
+import { JwtService } from '@nestjs/jwt';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import * as crypto from 'crypto';
 import { AuthService } from './auth.service';
 import { UserService } from '../users/users.service';
-import { jwtConstants } from './constants';
+import { AdminInvite } from './entities/admin-invite.entity';
+
+const sha256 = (v: string) =>
+  crypto.createHash('sha256').update(v).digest('hex');
 
 describe('AuthService admin invites', () => {
   let service: AuthService;
-  let jwt: JwtService;
   let users: { findByEmail: jest.Mock };
+  let qb: {
+    update: jest.Mock;
+    set: jest.Mock;
+    where: jest.Mock;
+    andWhere: jest.Mock;
+    execute: jest.Mock;
+  };
+  let repo: {
+    create: jest.Mock;
+    save: jest.Mock;
+    createQueryBuilder: jest.Mock;
+  };
 
   beforeEach(async () => {
     users = {
       findByEmail: jest.fn().mockRejectedValue(new NotFoundException()),
     };
+    qb = {
+      update: jest.fn().mockReturnThis(),
+      set: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+    repo = {
+      create: jest.fn((v) => v),
+      save: jest.fn((v) => v),
+      createQueryBuilder: jest.fn(() => qb),
+    };
     const moduleRef = await Test.createTestingModule({
-      imports: [JwtModule.register({ secret: jwtConstants.secret })],
-      providers: [AuthService, { provide: UserService, useValue: users }],
+      providers: [
+        AuthService,
+        { provide: UserService, useValue: users },
+        { provide: JwtService, useValue: {} },
+        { provide: getRepositoryToken(AdminInvite), useValue: repo },
+      ],
     }).compile();
     service = moduleRef.get(AuthService);
-    jwt = moduleRef.get(JwtService);
   });
 
-  it('accepts an invite for the email it was issued to', async () => {
-    const token = await service.createAdminInvite('New@Admin.io');
-    await expect(
-      service.verifyAdminInvite(token, 'new@admin.io'),
-    ).resolves.toBeUndefined();
-  });
-
-  it('rejects an invite redeemed with a different email', async () => {
-    const token = await service.createAdminInvite('a@b.c');
-    await expect(
-      service.verifyAdminInvite(token, 'other@b.c'),
-    ).rejects.toBeInstanceOf(BadRequestException);
-  });
-
-  it('rejects a session token used as an invite', async () => {
-    const session = await jwt.signAsync({
-      sub: '1',
-      email: 'a@b.c',
-      type: 'admin',
+  it('stores only a hash of the invite token, unused, for 7 days', async () => {
+    const token = await service.createAdminInvite('New@Admin.io', 'admin-1');
+    const saved = repo.save.mock.calls[0][0];
+    expect(saved.tokenHash).toBe(sha256(token));
+    expect(saved.tokenHash).not.toBe(token);
+    expect(saved).toMatchObject({
+      email: 'new@admin.io',
+      usedAt: null,
+      createdBy: 'admin-1',
     });
-    await expect(
-      service.verifyAdminInvite(session, 'a@b.c'),
-    ).rejects.toBeInstanceOf(BadRequestException);
-  });
-
-  it('cannot be used as a session token', async () => {
-    const token = await service.createAdminInvite('a@b.c');
-    await expect(
-      jwt.verifyAsync(token, { secret: jwtConstants.secret }),
-    ).rejects.toThrow();
-  });
-
-  it('rejects a token without the invite purpose', async () => {
-    const token = await jwt.signAsync(
-      { email: 'a@b.c' },
-      { secret: `${jwtConstants.secret}:admin-invite` },
-    );
-    await expect(
-      service.verifyAdminInvite(token, 'a@b.c'),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    const days = (saved.expiresAt.getTime() - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(6.99);
+    expect(days).toBeLessThanOrEqual(7);
   });
 
   it('refuses to invite an email that already has an account', async () => {
     users.findByEmail.mockResolvedValue({ id: '1' });
-    await expect(service.createAdminInvite('a@b.c')).rejects.toBeInstanceOf(
-      ConflictException,
-    );
+    await expect(
+      service.createAdminInvite('a@b.c', 'admin-1'),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('consumes a live invite matching the token hash and email', async () => {
+    await service.redeemAdminInvite('tok', 'New@Admin.io');
+    expect(qb.where).toHaveBeenCalledWith('"tokenHash" = :hash', {
+      hash: sha256('tok'),
+    });
+    expect(qb.andWhere).toHaveBeenCalledWith('email = :email', {
+      email: 'new@admin.io',
+    });
+    expect(qb.andWhere).toHaveBeenCalledWith('"usedAt" IS NULL');
+    expect(qb.andWhere).toHaveBeenCalledWith('"expiresAt" > now()');
+  });
+
+  it('rejects an unknown, used, expired or wrong-email invite', async () => {
+    qb.execute.mockResolvedValue({ affected: 0 });
+    await expect(
+      service.redeemAdminInvite('tok', 'a@b.c'),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

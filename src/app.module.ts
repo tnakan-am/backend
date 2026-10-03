@@ -19,6 +19,7 @@ import { OrderStatusHistory } from './orders/entities/order-status-history.entit
 import { Review } from './reviews/entities/review.entity';
 import { Notification } from './notifications/entities/notification.entity';
 import { Advertisement } from './ads/entities/advertisement.entity';
+import { AdminInvite } from './auth/entities/admin-invite.entity';
 
 import { UserModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
@@ -66,6 +67,7 @@ import { AdsModule } from './ads/ads.module';
         Review,
         Notification,
         Advertisement,
+        AdminInvite,
       ],
       // Local dev: synchronize entities directly for fast iteration.
       // Everywhere else (test/staging/prod): schema comes from migrations only,

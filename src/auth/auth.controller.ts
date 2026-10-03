@@ -17,6 +17,8 @@ import { EmailService } from '../email/email.service';
 import { Public } from './public.decorator';
 import { Roles } from './roles.decorator';
 import { RolesGuard } from './roles.guard';
+import { CurrentUser } from './current-user.decorator';
+import { JwtPayload } from './jwt-payload.interface';
 import { UserType } from '../users/entities/user.entity';
 import {
   SignInDto,
@@ -48,7 +50,7 @@ export class AuthController {
   async register(@Body() dto: CreateUserDto) {
     const { inviteToken, ...data } = dto;
     if (inviteToken) {
-      await this.authService.verifyAdminInvite(inviteToken, data.email);
+      await this.authService.redeemAdminInvite(inviteToken, data.email);
       // The invite link reached this mailbox, so it is already verified.
       const admin = await this.usersService.create(data, {
         type: UserType.ADMIN,
@@ -87,8 +89,11 @@ export class AuthController {
   @Post('admin-invites')
   @UseGuards(RolesGuard)
   @Roles(UserType.ADMIN)
-  async inviteAdmin(@Body() dto: AdminInviteDto) {
-    const token = await this.authService.createAdminInvite(dto.email);
+  async inviteAdmin(
+    @Body() dto: AdminInviteDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const token = await this.authService.createAdminInvite(dto.email, user.sub);
     await this.emailService.sendAdminInviteEmail(dto.email, token);
     return { success: true };
   }
