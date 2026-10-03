@@ -94,6 +94,7 @@ To run the whole stack in Docker (API + database): `docker compose up`.
 npm run build                 # migrations are loaded from dist/migrations
 npm run migration:run         # apply pending migrations
 npm run seed:categories       # seed the category tree
+npm run seed:test-data        # seed test users, products, orders, reviews, ads, notifications
 npm run db:reset              # drop and recreate the public schema of the DB in your DB_* settings
 
 # create a new migration from entity changes
@@ -119,6 +120,30 @@ npx ts-node src/seeds/dev-verify.ts                    # verify all users
 npx ts-node src/seeds/dev-verify.ts you@example.com admin  # verify one user and set its type
 ```
 
+### Test data
+
+`npm run seed:test-data` fills the database from your `DB_*` settings with linked sample data:
+5 verified accounts, 9 products (one unapproved, for the moderation queue), 4 orders in every
+status with status history and vendor notifications, reviews with matching product ratings, and
+3 ads (one unapproved). Run `npm run seed:categories` first so the products' category ids
+resolve. Re-running replaces the previous test data; rows not owned by the test accounts are not
+touched. It refuses to run with `NODE_ENV=production`.
+
+All accounts use the password `Test1234!`:
+
+| Email | Type |
+| --- | --- |
+| `admin@test.tnakan.local` | admin |
+| `farm@test.tnakan.local` | business (top seller) |
+| `bakery@test.tnakan.local` | business |
+| `alice@test.tnakan.local` | customer |
+| `bob@test.tnakan.local` | customer |
+
+```bash
+curl -X POST localhost:3000/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"alice@test.tnakan.local","password":"Test1234!"}'
+```
+
 ## Scripts
 
 | Command | What it does |
@@ -134,6 +159,7 @@ npx ts-node src/seeds/dev-verify.ts you@example.com admin  # verify one user and
 | `npm run test:cov` | Unit tests with coverage |
 | `npm run migration:run` | Apply migrations (run `npm run build` first) |
 | `npm run seed:categories` | Seed categories |
+| `npm run seed:test-data` | Seed local test data (run `seed:categories` first) |
 | `npm run db:reset` | Reset the local schema |
 
 ## CI
