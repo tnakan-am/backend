@@ -8,17 +8,24 @@ import {
   HttpException,
   Query,
   Logger,
+  UseGuards,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { UserService } from '../users/users.service';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import { EmailService } from '../email/email.service';
 import { Public } from './public.decorator';
+import { Roles } from './roles.decorator';
+import { RolesGuard } from './roles.guard';
+import { CurrentUser } from './current-user.decorator';
+import { JwtPayload } from './jwt-payload.interface';
+import { UserType } from '../users/entities/user.entity';
 import {
   SignInDto,
   ForgotPasswordDto,
   ResetPasswordDto,
   ResendVerificationDto,
+  AdminInviteDto,
 } from './sign-in.dto';
 
 @Controller('auth')
@@ -41,7 +48,25 @@ export class AuthController {
   @Public()
   @Post('register')
   async register(@Body() dto: CreateUserDto) {
-    const user = await this.usersService.create(dto);
+    const { inviteToken, ...data } = dto;
+    if (inviteToken) {
+      await this.authService.redeemAdminInvite(inviteToken, data.email);
+      // The invite link reached this mailbox, so it is already verified.
+      const admin = await this.usersService.create(data, {
+        type: UserType.ADMIN,
+        verified: true,
+        verifiedAt: new Date(),
+        verificationToken: null,
+        verificationTokenExpiresAt: null,
+      });
+      return {
+        success: true,
+        data: this.usersService.toSafeUser(admin),
+        message: 'Admin account created. You can now log in.',
+      };
+    }
+
+    const user = await this.usersService.create(data);
 
     try {
       await this.emailService.sendVerificationEmail(
@@ -59,6 +84,18 @@ export class AuthController {
       message:
         'Registration successful! Please check your email to verify your account.',
     };
+  }
+
+  @Post('admin-invites')
+  @UseGuards(RolesGuard)
+  @Roles(UserType.ADMIN)
+  async inviteAdmin(
+    @Body() dto: AdminInviteDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const token = await this.authService.createAdminInvite(dto.email, user.sub);
+    await this.emailService.sendAdminInviteEmail(dto.email, token);
+    return { success: true };
   }
 
   @Public()

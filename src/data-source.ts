@@ -10,6 +10,8 @@ import { OrderProduct } from './orders/entities/order-product.entity';
 import { OrderStatusHistory } from './orders/entities/order-status-history.entity';
 import { Review } from './reviews/entities/review.entity';
 import { Notification } from './notifications/entities/notification.entity';
+import { Advertisement } from './ads/entities/advertisement.entity';
+import { AdminInvite } from './auth/entities/admin-invite.entity';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -44,6 +46,8 @@ const AppDataSource = new DataSource({
     OrderStatusHistory,
     Review,
     Notification,
+    Advertisement,
+    AdminInvite,
   ],
   migrations: ['dist/migrations/*.js'],
   synchronize: false,

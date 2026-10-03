@@ -6,6 +6,7 @@ import {
   IsIn,
   IsOptional,
   ValidateNested,
+  ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { UserType } from '../entities/user.entity';
@@ -38,6 +39,9 @@ export class CreateUserDto {
   @IsOptional()
   phoneNumber?: string;
 
+  // With an admin invite the server sets the type itself, so whatever the
+  // client sends here is ignored rather than validated.
+  @ValidateIf((o: CreateUserDto) => !o.inviteToken)
   @IsIn(SELF_REGISTRABLE_TYPES as readonly UserType[])
   @IsNotEmpty()
   type: UserType;
@@ -61,6 +65,11 @@ export class CreateUserDto {
   @IsString()
   @IsOptional()
   image?: string;
+
+  // Signed admin invite from the /registration/:token link.
+  @IsString()
+  @IsOptional()
+  inviteToken?: string;
 
   @IsOptional()
   @ValidateNested()

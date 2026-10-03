@@ -27,7 +27,7 @@ export type SafeUser = Omit<
 
 export type PublicBusiness = Pick<
   Users,
-  'id' | 'displayName' | 'image' | 'company' | 'isTopSeller'
+  'id' | 'displayName' | 'image' | 'name' | 'company' | 'isTopSeller'
 >;
 
 const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
@@ -44,7 +44,10 @@ export class UserService {
     private readonly emailService: EmailService,
   ) {}
 
-  async create(dto: CreateUserDto): Promise<Users> {
+  async create(
+    dto: Omit<CreateUserDto, 'inviteToken'>,
+    overrides: Partial<Users> = {},
+  ): Promise<Users> {
     try {
       const existing = await this.userRepository.findOne({
         where: { email: dto.email.toLowerCase() },
@@ -66,6 +69,7 @@ export class UserService {
         ),
         verified: false,
         isTopSeller: false,
+        ...overrides,
       });
 
       return await this.userRepository.save(entity);
@@ -105,6 +109,7 @@ export class UserService {
         id: true,
         displayName: true,
         image: true,
+        name: true,
         company: true,
         isTopSeller: true,
       },
